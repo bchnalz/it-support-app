@@ -1,0 +1,23 @@
+# ===============================================
+# TEMPLATE FILE .env
+# ===============================================
+# Copy file ini dan rename menjadi .env
+# Kemudian isi dengan credentials Supabase Anda
+# ===============================================
+
+# Supabase Configuration
+# Ambil dari: https://app.supabase.com/project/_/settings/api
+
+VITE_SUPABASE_URL=https://your-project-id.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key-here
+
+# ===============================================
+# CARA SETUP:
+# ===============================================
+# 1. Copy file ini
+# 2. Rename menjadi .env (tanpa extension .txt)
+# 3. Ganti your-project-id dengan ID project Supabase Anda
+# 4. Ganti your-anon-key-here dengan Anon Key dari Supabase
+# 5. Save file
+# 6. Restart development server (npm run dev)
+# ===============================================

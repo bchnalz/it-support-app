@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #0f172a;
+  color: #f1f5f9;
+}
+
+/* Dark Theme Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Firefox Scrollbar */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #475569 #1e293b;
+}
+
+/* Dark Theme Input & Select */
+input:not([type="checkbox"]):not([type="radio"]),
+select,
+textarea {
+  background-color: #1e293b;
+  border-color: #334155;
+  color: #f1f5f9;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+select:focus,
+textarea:focus {
+  border-color: #06b6d4;
+  ring-color: #06b6d4;
+}
+
+input:not([type="checkbox"]):not([type="radio"])::placeholder,
+textarea::placeholder {
+  color: #64748b;
+}
+
+/* Dark Theme Table */
+table {
+  border-color: #334155;
+}
+
+thead {
+  background-color: #1e293b;
+}
+
+tbody tr:hover {
+  background-color: #1e293b;
+}
+
+/* Dark Theme Card */
+.bg-white {
+  background-color: #1e293b !important;
+}
+
+.bg-gray-50 {
+  background-color: #0f172a !important;
+}
+
+.bg-gray-100 {
+  background-color: #1e293b !important;
+}
+
+/* Dark Theme Text */
+.text-gray-900 {
+  color: #f1f5f9 !important;
+}
+
+.text-gray-700 {
+  color: #cbd5e1 !important;
+}
+
+.text-gray-600 {
+  color: #94a3b8 !important;
+}
+
+.text-gray-500 {
+  color: #64748b !important;
+}
+
+/* Dark Theme Border */
+.border-gray-200 {
+  border-color: #334155 !important;
+}
+
+.border-gray-300 {
+  border-color: #475569 !important;
+}
+
+.divide-gray-200 > * + * {
+  border-color: #334155 !important;
+}

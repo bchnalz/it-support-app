@@ -1,0 +1,761 @@
+import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
+import Layout from '../components/Layout';
+
+const StokOpnam = () => {
+  const { profile } = useAuth();
+  const [perangkat, setPerangkat] = useState([]);
+  const [jenisPerangkatList, setJenisPerangkatList] = useState([]);
+  const [jenisBarangList, setJenisBarangList] = useState([]);
+  const [lokasiList, setLokasiList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [addStep, setAddStep] = useState(1); // Step 1 or 2
+  const [newPerangkatId, setNewPerangkatId] = useState(null); // ID yang baru dibuat
+  const [generatedIdPerangkat, setGeneratedIdPerangkat] = useState(''); // ID Perangkat string
+  
+  // Step 1 form (minimal)
+  const [step1Form, setStep1Form] = useState({
+    jenis_perangkat_kode: '',
+    serial_number: '',
+    lokasi_kode: '',
+  });
+  
+  // Step 2 form (detail)
+  const [step2Form, setStep2Form] = useState({
+    jenis_barang_kode: '',
+    merk: '',
+    id_remoteaccess: '',
+    spesifikasi_processor: '',
+    kapasitas_ram: '',
+    jenis_storage: '',
+    kapasitas_storage: '',
+    mac_ethernet: '',
+    mac_wireless: '',
+    ip_ethernet: '',
+    ip_wireless: '',
+    serial_number_monitor: '',
+    status_perangkat: true, // true = layak (aktif), false = tidak layak (rusak)
+  });
+
+  useEffect(() => {
+    fetchPerangkat();
+    fetchMasterData();
+  }, []);
+
+  const fetchMasterData = async () => {
+    try {
+      // Fetch all master tables
+      const [jenisPerangkat, jenisBarang, lokasi] = await Promise.all([
+        supabase.from('ms_jenis_perangkat').select('*').eq('is_active', true).order('kode'),
+        supabase.from('ms_jenis_barang').select('*').eq('is_active', true).order('kode'),
+        supabase.from('ms_lokasi').select('*').eq('is_active', true).order('kode'),
+      ]);
+
+      if (jenisPerangkat.error) throw jenisPerangkat.error;
+      if (jenisBarang.error) throw jenisBarang.error;
+      if (lokasi.error) throw lokasi.error;
+
+      setJenisPerangkatList(jenisPerangkat.data);
+      setJenisBarangList(jenisBarang.data);
+      setLokasiList(lokasi.data);
+    } catch (error) {
+      console.error('Error fetching master data:', error.message);
+    }
+  };
+
+  const fetchPerangkat = async () => {
+    try {
+      setLoading(true);
+      const { data, error} = await supabase
+        .from('perangkat')
+        .select(`
+          *,
+          jenis_perangkat:ms_jenis_perangkat!perangkat_jenis_perangkat_kode_fkey(kode, nama),
+          jenis_barang:ms_jenis_barang!perangkat_jenis_barang_kode_fkey(kode, nama),
+          lokasi:ms_lokasi!perangkat_lokasi_kode_fkey(kode, nama),
+          petugas:profiles!perangkat_petugas_id_fkey(full_name)
+        `)
+        .order('tanggal_entry', { ascending: false });
+
+      if (error) throw error;
+      setPerangkat(data);
+    } catch (error) {
+      console.error('Error fetching perangkat:', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const generateIdPerangkat = async (kode) => {
+    try {
+      const { data, error } = await supabase.rpc('generate_id_perangkat', {
+        p_kode: kode,
+      });
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error generating ID:', error.message);
+      throw error;
+    }
+  };
+
+  // Step 1: Generate ID & Save minimal data
+  const handleGenerateAndSave = async (e) => {
+    e.preventDefault();
+
+    try {
+      // Generate ID Perangkat
+      const idPerangkat = await generateIdPerangkat(step1Form.jenis_perangkat_kode);
+      setGeneratedIdPerangkat(idPerangkat);
+
+      // Prepare minimal data untuk insert
+      const dataToInsert = {
+        id_perangkat: idPerangkat,
+        petugas_id: profile.id,
+        jenis_perangkat_kode: step1Form.jenis_perangkat_kode,
+        serial_number: step1Form.serial_number,
+        lokasi_kode: step1Form.lokasi_kode,
+        nama_perangkat: step1Form.serial_number, // Temporary, nama = SN
+        status_perangkat: 'aktif', // Default aktif
+        // Fill optional fields with "-"
+        merk: '-',
+        jenis_barang_kode: null,
+        id_remoteaccess: '-',
+        spesifikasi_processor: '-',
+        kapasitas_ram: '-',
+        jenis_storage: '-',
+        kapasitas_storage: '-',
+        mac_ethernet: '-',
+        mac_wireless: '-',
+        ip_ethernet: '-',
+        ip_wireless: '-',
+        serial_number_monitor: '-',
+      };
+
+      const { data, error } = await supabase
+        .from('perangkat')
+        .insert([dataToInsert])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Save the new ID and move to step 2
+      setNewPerangkatId(data.id);
+      setAddStep(2);
+    } catch (error) {
+      alert('❌ Gagal generate ID: ' + error.message);
+    }
+  };
+
+  // Step 2: Update detail data
+  const handleSaveDetail = async (e) => {
+    e.preventDefault();
+
+    try {
+      // Prepare update data
+      const dataToUpdate = {
+        jenis_barang_kode: step2Form.jenis_barang_kode || null,
+        merk: step2Form.merk || '-',
+        id_remoteaccess: step2Form.id_remoteaccess || '-',
+        spesifikasi_processor: step2Form.spesifikasi_processor || '-',
+        kapasitas_ram: step2Form.kapasitas_ram || '-',
+        jenis_storage: step2Form.jenis_storage || '-',
+        kapasitas_storage: step2Form.kapasitas_storage || '-',
+        mac_ethernet: step2Form.mac_ethernet || '-',
+        mac_wireless: step2Form.mac_wireless || '-',
+        ip_ethernet: step2Form.ip_ethernet || '-',
+        ip_wireless: step2Form.ip_wireless || '-',
+        serial_number_monitor: step2Form.serial_number_monitor || '-',
+        status_perangkat: step2Form.status_perangkat ? 'aktif' : 'rusak',
+      };
+
+      const { error } = await supabase
+        .from('perangkat')
+        .update(dataToUpdate)
+        .eq('id', newPerangkatId);
+
+      if (error) throw error;
+
+      alert(`✅ Perangkat berhasil ditambahkan!\n\nID Perangkat: ${generatedIdPerangkat}`);
+      
+      // Reset forms
+      setShowAddForm(false);
+      setAddStep(1);
+      setNewPerangkatId(null);
+      setGeneratedIdPerangkat('');
+      setStep1Form({
+        jenis_perangkat_kode: '',
+        serial_number: '',
+        lokasi_kode: '',
+      });
+      setStep2Form({
+        jenis_barang_kode: '',
+        merk: '',
+        id_remoteaccess: '',
+        spesifikasi_processor: '',
+        kapasitas_ram: '',
+        jenis_storage: '',
+        kapasitas_storage: '',
+        mac_ethernet: '',
+        mac_wireless: '',
+        ip_ethernet: '',
+        ip_wireless: '',
+        serial_number_monitor: '',
+        status_perangkat: true,
+      });
+      
+      fetchPerangkat();
+    } catch (error) {
+      alert('❌ Gagal menyimpan detail: ' + error.message);
+    }
+  };
+
+  const handleEdit = (item) => {
+    setEditingId(item.id);
+    setEditForm({ ...item });
+  };
+
+  const handleSaveEdit = async () => {
+    try {
+      const { error } = await supabase
+        .from('perangkat')
+        .update({
+          ...editForm,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', editingId);
+
+      if (error) throw error;
+
+      alert('Data berhasil diupdate!');
+      setEditingId(null);
+      setEditForm({});
+      fetchPerangkat();
+    } catch (error) {
+      alert('Gagal update data: ' + error.message);
+    }
+  };
+
+  const filteredPerangkat = perangkat.filter((item) => {
+    const search = searchTerm.toLowerCase();
+    return (
+      item.id_perangkat?.toLowerCase().includes(search) ||
+      item.nama_perangkat?.toLowerCase().includes(search) ||
+      item.jenis_perangkat?.nama?.toLowerCase().includes(search) ||
+      item.jenis_barang?.nama?.toLowerCase().includes(search) ||
+      item.merk?.toLowerCase().includes(search) ||
+      item.lokasi?.nama?.toLowerCase().includes(search) ||
+      item.serial_number?.toLowerCase().includes(search) ||
+      item.ip_ethernet?.toLowerCase().includes(search) ||
+      item.ip_wireless?.toLowerCase().includes(search)
+    );
+  });
+
+  const statusColors = {
+    aktif: 'bg-green-100 text-green-800',
+    rusak: 'bg-red-100 text-red-800',
+    maintenance: 'bg-yellow-100 text-yellow-800',
+    tersimpan: 'bg-gray-100 text-gray-800',
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('id-ID', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Stok Opnam</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Kelola dan update data inventaris perangkat IT
+            </p>
+          </div>
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
+          >
+            + Tambah Perangkat
+          </button>
+        </div>
+
+        {/* Add Form Modal */}
+        {showAddForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto p-6 my-8">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">Tambah Perangkat Baru</h2>
+              <form onSubmit={handleAddPerangkat} className="space-y-4">
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-blue-800">
+                    <strong>ID Perangkat akan auto-generate</strong> berdasarkan jenis yang dipilih
+                    (Format: KODE.TAHUN.BULAN.URUTAN)
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* JENIS PERANGKAT */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Jenis Perangkat *
+                    </label>
+                    <select
+                      required
+                      value={addForm.jenis_perangkat_kode}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, jenis_perangkat_kode: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">-- Pilih Jenis --</option>
+                      {jenisPerangkatList.map((jenis) => (
+                        <option key={jenis.id} value={jenis.kode}>
+                          {jenis.kode} - {jenis.nama}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* JENIS BARANG */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Jenis Barang
+                    </label>
+                    <select
+                      value={addForm.jenis_barang_kode}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, jenis_barang_kode: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">-- Pilih Jenis Barang --</option>
+                      {jenisBarangList.map((jenis) => (
+                        <option key={jenis.id} value={jenis.kode}>
+                          {jenis.kode} - {jenis.nama}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* SERIAL NUMBER */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Serial Number *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={addForm.serial_number}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, serial_number: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* LOKASI */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Lokasi *
+                    </label>
+                    <select
+                      required
+                      value={addForm.lokasi_kode}
+                      onChange={(e) => setAddForm({ ...addForm, lokasi_kode: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="">-- Pilih Lokasi --</option>
+                      {lokasiList.map((lok) => (
+                        <option key={lok.id} value={lok.kode}>
+                          {lok.kode} - {lok.nama}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* NAMA PERANGKAT */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Nama Perangkat *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={addForm.nama_perangkat}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, nama_perangkat: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* MERK */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Merk</label>
+                    <input
+                      type="text"
+                      value={addForm.merk}
+                      onChange={(e) => setAddForm({ ...addForm, merk: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* ID REMOTE ACCESS */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      ID Remote Access
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.id_remoteaccess}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, id_remoteaccess: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* PROCESSOR */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Spesifikasi Processor
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.spesifikasi_processor}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, spesifikasi_processor: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* RAM */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Kapasitas RAM
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.kapasitas_ram}
+                      onChange={(e) => setAddForm({ ...addForm, kapasitas_ram: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* STORAGE */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Jenis Storage
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.jenis_storage}
+                      onChange={(e) => setAddForm({ ...addForm, jenis_storage: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="SSD / HDD"
+                    />
+                  </div>
+
+                  {/* KAPASITAS STORAGE */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Kapasitas Storage
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.kapasitas_storage}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, kapasitas_storage: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="256GB"
+                    />
+                  </div>
+
+                  {/* MAC ETHERNET */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      MAC Ethernet
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.mac_ethernet}
+                      onChange={(e) => setAddForm({ ...addForm, mac_ethernet: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* MAC WIRELESS */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      MAC Wireless
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.mac_wireless}
+                      onChange={(e) => setAddForm({ ...addForm, mac_wireless: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* IP ETHERNET */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      IP Ethernet
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.ip_ethernet}
+                      onChange={(e) => setAddForm({ ...addForm, ip_ethernet: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* IP WIRELESS */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      IP Wireless
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.ip_wireless}
+                      onChange={(e) => setAddForm({ ...addForm, ip_wireless: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* SERIAL NUMBER MONITOR */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Serial Number Monitor
+                    </label>
+                    <input
+                      type="text"
+                      value={addForm.serial_number_monitor}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, serial_number_monitor: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+
+                  {/* STATUS */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Status Perangkat *
+                    </label>
+                    <select
+                      value={addForm.status_perangkat}
+                      onChange={(e) =>
+                        setAddForm({ ...addForm, status_perangkat: e.target.value })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    >
+                      <option value="aktif">Aktif</option>
+                      <option value="rusak">Rusak</option>
+                      <option value="maintenance">Maintenance</option>
+                      <option value="tersimpan">Tersimpan</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="flex gap-3 justify-end pt-4 border-t">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm(false)}
+                    className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                  >
+                    💾 Simpan
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Search Bar */}
+        <div className="bg-white rounded-xl shadow-md p-4">
+          <input
+            type="text"
+            placeholder="🔍 Cari perangkat (ID, Nama, Jenis, Merk, Lokasi, Serial, IP)..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+        </div>
+
+        {/* Table - Desktop View */}
+        <div className="bg-white rounded-xl shadow-md overflow-hidden">
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    ID Perangkat
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Nama Perangkat
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    ID Remote Access
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Tanggal Entry
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Petugas
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Jenis Perangkat
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Jenis Barang
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Status
+                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Aksi
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredPerangkat.map((item) => (
+                  <tr key={item.id} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm font-mono font-bold text-blue-600">
+                      {item.id_perangkat}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">{item.nama_perangkat}</td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {item.id_remoteaccess || '-'}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {formatDate(item.tanggal_entry)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {item.petugas?.full_name || '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {item.jenis_perangkat?.nama || '-'}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-500">
+                      {item.jenis_barang?.nama || '-'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                          statusColors[item.status_perangkat]
+                        }`}
+                      >
+                        {item.status_perangkat}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <button
+                        onClick={() => handleEdit(item)}
+                        className="text-blue-600 hover:text-blue-900"
+                      >
+                        ✏️ Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile View - Card */}
+          <div className="lg:hidden divide-y divide-gray-200">
+            {filteredPerangkat.map((item) => (
+              <div key={item.id} className="p-4">
+                <div className="space-y-2">
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <span className="text-sm font-mono font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                        {item.id_perangkat}
+                      </span>
+                      <p className="font-bold text-gray-900 mt-2">{item.nama_perangkat}</p>
+                      <div className="mt-2 space-y-1 text-sm text-gray-600">
+                        <p>
+                          <span className="font-medium">Remote:</span>{' '}
+                          {item.id_remoteaccess || '-'}
+                        </p>
+                        <p>
+                          <span className="font-medium">Tanggal:</span>{' '}
+                          {formatDate(item.tanggal_entry)}
+                        </p>
+                        <p>
+                          <span className="font-medium">Petugas:</span>{' '}
+                          {item.petugas?.full_name || '-'}
+                        </p>
+                        <p>
+                          <span className="font-medium">Jenis:</span>{' '}
+                          {item.jenis_perangkat?.nama || '-'} |{' '}
+                          {item.jenis_barang?.nama || '-'}
+                        </p>
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        statusColors[item.status_perangkat]
+                      }`}
+                    >
+                      {item.status_perangkat}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleEdit(item)}
+                    className="w-full mt-3 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm"
+                  >
+                    ✏️ Edit Perangkat
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {filteredPerangkat.length === 0 && (
+            <div className="text-center py-12 text-gray-500">
+              <p className="text-lg">Tidak ada data ditemukan</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </Layout>
+  );
+};
+
+export default StokOpnam;
