@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Layout from '../components/Layout';
 import IPAddressInput from '../components/IPAddressInput';
 import MACAddressInput from '../components/MACAddressInput';
+import StorageInput from '../components/StorageInput';
 
 const StokOpnam = () => {
   const { profile } = useAuth();
@@ -46,8 +47,7 @@ const StokOpnam = () => {
     id_remoteaccess: '',
     spesifikasi_processor: '',
     kapasitas_ram: '',
-    jenis_storage: '',
-    kapasitas_storage: '',
+    storages: [], // Array of { jenis_storage, kapasitas }
     mac_ethernet: '',
     mac_wireless: '',
     ip_ethernet: '',
@@ -68,7 +68,7 @@ const StokOpnam = () => {
       // Fetch all master tables
       const [jenisPerangkat, jenisBarang, lokasi] = await Promise.all([
         supabase.from('ms_jenis_perangkat').select('*').eq('is_active', true).order('kode'),
-        supabase.from('ms_jenis_barang').select('*').eq('is_active', true).order('nama'),
+        supabase.from('ms_jenis_barang').select('*, jenis_perangkat_kode').eq('is_active', true).order('nama'),
         supabase.from('ms_lokasi').select('*').eq('is_active', true).order('kode'),
       ]);
 
@@ -114,7 +114,8 @@ const StokOpnam = () => {
           jenis_perangkat:ms_jenis_perangkat!perangkat_jenis_perangkat_kode_fkey(kode, nama),
           jenis_barang:ms_jenis_barang!perangkat_jenis_barang_id_fkey(nama),
           lokasi:ms_lokasi!perangkat_lokasi_kode_fkey(kode, nama),
-          petugas:profiles!perangkat_petugas_id_fkey(full_name)
+          petugas:profiles!perangkat_petugas_id_fkey(full_name),
+          perangkat_storage(id, jenis_storage, kapasitas)
         `)
         .order('tanggal_entry', { ascending: false });
 
@@ -125,6 +126,13 @@ const StokOpnam = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Filter jenis barang based on selected jenis perangkat
+  const getFilteredJenisBarang = (jenisPerangkatKode) => {
+    if (!jenisPerangkatKode) return jenisBarangList;
+    
+    return jenisBarangList.filter(jb => jb.jenis_perangkat_kode === jenisPerangkatKode);
   };
 
   const generateIdPerangkat = async (kode) => {
@@ -179,8 +187,6 @@ const StokOpnam = () => {
         id_remoteaccess: '-',
         spesifikasi_processor: '-',
         kapasitas_ram: '-',
-        jenis_storage: '-',
-        kapasitas_storage: '-',
         mac_ethernet: '-',
         mac_wireless: '-',
         ip_ethernet: '-',
@@ -216,8 +222,6 @@ const StokOpnam = () => {
         id_remoteaccess: step2Form.id_remoteaccess || '-',
         spesifikasi_processor: step2Form.spesifikasi_processor || '-',
         kapasitas_ram: step2Form.kapasitas_ram || '-',
-        jenis_storage: step2Form.jenis_storage || '-',
-        kapasitas_storage: step2Form.kapasitas_storage || '-',
         mac_ethernet: step2Form.mac_ethernet || '-',
         mac_wireless: step2Form.mac_wireless || '-',
         ip_ethernet: step2Form.ip_ethernet || '-',
@@ -226,12 +230,27 @@ const StokOpnam = () => {
         status_perangkat: step2Form.status_perangkat ? 'layak' : 'rusak',
       };
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('perangkat')
         .update(dataToUpdate)
         .eq('id', newPerangkatId);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
+
+      // Insert storage entries if any
+      if (step2Form.storages && step2Form.storages.length > 0) {
+        const storageEntries = step2Form.storages.map(storage => ({
+          perangkat_id: newPerangkatId,
+          jenis_storage: storage.jenis_storage,
+          kapasitas: storage.kapasitas || '0',
+        }));
+
+        const { error: storageError } = await supabase
+          .from('perangkat_storage')
+          .insert(storageEntries);
+
+        if (storageError) throw storageError;
+      }
 
       alert(`✅ Perangkat berhasil ditambahkan!\n\nID Perangkat: ${generatedIdPerangkat}\nNama Perangkat: ${generatedNamaPerangkat}`);
       
@@ -252,8 +271,7 @@ const StokOpnam = () => {
         id_remoteaccess: '',
         spesifikasi_processor: '',
         kapasitas_ram: '',
-        jenis_storage: '',
-        kapasitas_storage: '',
+        storages: [],
         mac_ethernet: '',
         mac_wireless: '',
         ip_ethernet: '',
@@ -282,8 +300,7 @@ const StokOpnam = () => {
       id_remoteaccess: item.id_remoteaccess,
       spesifikasi_processor: item.spesifikasi_processor,
       kapasitas_ram: item.kapasitas_ram,
-      jenis_storage: item.jenis_storage,
-      kapasitas_storage: item.kapasitas_storage,
+      storages: item.perangkat_storage || [], // Get storages from joined data
       mac_ethernet: item.mac_ethernet,
       mac_wireless: item.mac_wireless,
       ip_ethernet: item.ip_ethernet,
@@ -309,8 +326,6 @@ const StokOpnam = () => {
         id_remoteaccess: editForm.id_remoteaccess,
         spesifikasi_processor: editForm.spesifikasi_processor,
         kapasitas_ram: editForm.kapasitas_ram,
-        jenis_storage: editForm.jenis_storage,
-        kapasitas_storage: editForm.kapasitas_storage,
         mac_ethernet: editForm.mac_ethernet,
         mac_wireless: editForm.mac_wireless,
         ip_ethernet: editForm.ip_ethernet,
@@ -322,12 +337,35 @@ const StokOpnam = () => {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
+      const { error: updateError } = await supabase
         .from('perangkat')
         .update(updateData)
         .eq('id', editingId);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
+
+      // Delete old storage entries
+      const { error: deleteError } = await supabase
+        .from('perangkat_storage')
+        .delete()
+        .eq('perangkat_id', editingId);
+
+      if (deleteError) throw deleteError;
+
+      // Insert new storage entries if any
+      if (editForm.storages && editForm.storages.length > 0) {
+        const storageEntries = editForm.storages.map(storage => ({
+          perangkat_id: editingId,
+          jenis_storage: storage.jenis_storage,
+          kapasitas: storage.kapasitas || '0',
+        }));
+
+        const { error: storageError } = await supabase
+          .from('perangkat_storage')
+          .insert(storageEntries);
+
+        if (storageError) throw storageError;
+      }
 
       alert('Data berhasil diupdate!');
       setEditingId(null);
@@ -676,7 +714,7 @@ const StokOpnam = () => {
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         >
                           <option value="">-- Pilih Jenis Barang --</option>
-                          {jenisBarangList.map((jenis) => (
+                          {getFilteredJenisBarang(step1Form.jenis_perangkat_kode).map((jenis) => (
                             <option key={jenis.id} value={jenis.id}>
                               {jenis.nama}
                             </option>
@@ -746,37 +784,22 @@ const StokOpnam = () => {
                         />
                       </div>
 
-                      {/* 6. Jenis Storage */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          6. Jenis Storage
-                        </label>
-                        <input
-                          type="text"
-                          value={step2Form.jenis_storage}
-                          onChange={(e) =>
-                            setStep2Form({ ...step2Form, jenis_storage: e.target.value })
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          placeholder="SSD, HDD, NVMe, ..."
-                        />
-                      </div>
+                    </div>
 
-                      {/* 7. Kapasitas Storage */}
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                          7. Kapasitas Storage
-                        </label>
-                        <input
-                          type="text"
-                          value={step2Form.kapasitas_storage}
-                          onChange={(e) =>
-                            setStep2Form({ ...step2Form, kapasitas_storage: e.target.value })
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          placeholder="256GB, 512GB, 1TB, ..."
-                        />
-                      </div>
+                    {/* 6. Storage (Full Width) */}
+                    <div className="col-span-full">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        6. Storage (Opsional)
+                      </label>
+                      <StorageInput
+                        value={step2Form.storages}
+                        onChange={(storages) =>
+                          setStep2Form({ ...step2Form, storages })
+                        }
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
                       {/* 8. MAC Ethernet */}
                       <div>
@@ -1034,14 +1057,19 @@ const StokOpnam = () => {
                 )}
 
                 {/* Storage */}
-                {((viewingDetail.jenis_storage && viewingDetail.jenis_storage !== '-') || 
-                  (viewingDetail.kapasitas_storage && viewingDetail.kapasitas_storage !== '-')) && (
+                {viewingDetail.perangkat_storage && viewingDetail.perangkat_storage.length > 0 && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Storage</p>
-                    <p className="text-base">
-                      {viewingDetail.jenis_storage !== '-' && viewingDetail.jenis_storage}{' '}
-                      {viewingDetail.kapasitas_storage !== '-' && viewingDetail.kapasitas_storage}
-                    </p>
+                    <p className="text-xs text-gray-500 mb-2">Storage</p>
+                    <div className="space-y-1">
+                      {viewingDetail.perangkat_storage.map((storage, index) => (
+                        <div key={storage.id || index} className="flex items-center gap-2 text-base">
+                          <span className="bg-blue-900 text-blue-200 px-2 py-0.5 rounded text-xs font-medium">
+                            {storage.jenis_storage}
+                          </span>
+                          <span>{storage.kapasitas} GB</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -1239,7 +1267,7 @@ const StokOpnam = () => {
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">-- Pilih Jenis Barang --</option>
-                      {jenisBarangList.map((jenis) => (
+                      {getFilteredJenisBarang(editForm.jenis_perangkat_kode).map((jenis) => (
                         <option key={jenis.id} value={jenis.id}>
                           {jenis.nama}
                         </option>
@@ -1308,37 +1336,22 @@ const StokOpnam = () => {
                     />
                   </div>
 
-                  {/* Jenis Storage */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Jenis Storage
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., SSD, HDD"
-                      value={editForm.jenis_storage || ''}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, jenis_storage: e.target.value })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                </div>
 
-                  {/* Kapasitas Storage */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Kapasitas Storage
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g., 512GB"
-                      value={editForm.kapasitas_storage || ''}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, kapasitas_storage: e.target.value })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                {/* Storage (Full Width) */}
+                <div className="col-span-full">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Storage (Opsional)
+                  </label>
+                  <StorageInput
+                    value={editForm.storages || []}
+                    onChange={(storages) =>
+                      setEditForm({ ...editForm, storages })
+                    }
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
 
                   {/* MAC Ethernet */}
                   <div>

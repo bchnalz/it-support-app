@@ -1,0 +1,122 @@
+import { useState, useEffect } from 'react';
+
+/**
+ * Dynamic Storage Input Component
+ * Allows adding/removing multiple storage entries
+ * Each entry: { jenis_storage, kapasitas }
+ */
+export default function StorageInput({ value = [], onChange }) {
+  const [storages, setStorages] = useState([]);
+
+  // Initialize from value prop
+  useEffect(() => {
+    if (value && value.length > 0) {
+      setStorages(value);
+    } else {
+      setStorages([]);
+    }
+  }, [value]);
+
+  // Update parent component
+  const updateParent = (newStorages) => {
+    setStorages(newStorages);
+    onChange(newStorages);
+  };
+
+  // Add new storage entry
+  const handleAdd = () => {
+    const newStorages = [
+      ...storages,
+      { jenis_storage: 'SSD', kapasitas: '' }
+    ];
+    updateParent(newStorages);
+  };
+
+  // Remove storage entry
+  const handleRemove = (index) => {
+    const newStorages = storages.filter((_, i) => i !== index);
+    updateParent(newStorages);
+  };
+
+  // Update storage entry
+  const handleUpdate = (index, field, value) => {
+    const newStorages = [...storages];
+    
+    // For kapasitas, only allow numbers
+    if (field === 'kapasitas') {
+      // Allow only digits
+      if (value && !/^\d+$/.test(value)) {
+        return;
+      }
+    }
+    
+    newStorages[index][field] = value;
+    updateParent(newStorages);
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Storage entries */}
+      {storages.map((storage, index) => (
+        <div key={index} className="flex items-center gap-2">
+          {/* Index number */}
+          <div className="w-8 h-10 flex items-center justify-center bg-gray-100 rounded text-sm font-semibold text-gray-600">
+            {index + 1}
+          </div>
+
+          {/* Jenis Storage dropdown */}
+          <select
+            value={storage.jenis_storage}
+            onChange={(e) => handleUpdate(index, 'jenis_storage', e.target.value)}
+            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+          >
+            <option value="SSD">SSD</option>
+            <option value="HDD">HDD</option>
+            <option value="NVMe">NVMe</option>
+          </select>
+
+          {/* Kapasitas input */}
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={storage.kapasitas}
+              onChange={(e) => handleUpdate(index, 'kapasitas', e.target.value)}
+              placeholder="256"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm pr-10"
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
+              GB
+            </span>
+          </div>
+
+          {/* Remove button */}
+          <button
+            type="button"
+            onClick={() => handleRemove(index)}
+            className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition text-sm font-medium"
+            title="Hapus storage"
+          >
+            × Hapus
+          </button>
+        </div>
+      ))}
+
+      {/* Add button */}
+      <button
+        type="button"
+        onClick={handleAdd}
+        className="w-full px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition text-sm font-medium flex items-center justify-center gap-2"
+      >
+        <span className="text-lg">+</span>
+        <span>Tambah Storage</span>
+      </button>
+
+      {/* Info text */}
+      {storages.length === 0 && (
+        <p className="text-xs text-gray-500 italic">
+          Belum ada storage. Klik "Tambah Storage" untuk menambahkan.
+        </p>
+      )}
+    </div>
+  );
+}
