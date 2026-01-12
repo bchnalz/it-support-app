@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import Layout from '../components/Layout';
+import IPAddressInput from '../components/IPAddressInput';
+import MACAddressInput from '../components/MACAddressInput';
 
 const StokOpnam = () => {
   const { profile } = useAuth();
@@ -268,17 +270,61 @@ const StokOpnam = () => {
 
   const handleEdit = (item) => {
     setEditingId(item.id);
-    setEditForm({ ...item });
+    // Only copy actual database columns, not expanded relations
+    setEditForm({
+      id_perangkat: item.id_perangkat,
+      nama_perangkat: item.nama_perangkat,
+      jenis_perangkat_kode: item.jenis_perangkat_kode,
+      lokasi_kode: item.lokasi_kode,
+      serial_number: item.serial_number,
+      jenis_barang_id: item.jenis_barang_id,
+      merk: item.merk,
+      id_remoteaccess: item.id_remoteaccess,
+      spesifikasi_processor: item.spesifikasi_processor,
+      kapasitas_ram: item.kapasitas_ram,
+      jenis_storage: item.jenis_storage,
+      kapasitas_storage: item.kapasitas_storage,
+      mac_ethernet: item.mac_ethernet,
+      mac_wireless: item.mac_wireless,
+      ip_ethernet: item.ip_ethernet,
+      ip_wireless: item.ip_wireless,
+      serial_number_monitor: item.serial_number_monitor,
+      tanggal_entry: item.tanggal_entry,
+      status_perangkat: item.status_perangkat,
+      petugas_id: item.petugas_id,
+    });
   };
 
   const handleSaveEdit = async () => {
     try {
+      // Extract only database columns (exclude expanded relations)
+      const updateData = {
+        id_perangkat: editForm.id_perangkat,
+        nama_perangkat: editForm.nama_perangkat,
+        jenis_perangkat_kode: editForm.jenis_perangkat_kode,
+        lokasi_kode: editForm.lokasi_kode,
+        serial_number: editForm.serial_number,
+        jenis_barang_id: editForm.jenis_barang_id,
+        merk: editForm.merk,
+        id_remoteaccess: editForm.id_remoteaccess,
+        spesifikasi_processor: editForm.spesifikasi_processor,
+        kapasitas_ram: editForm.kapasitas_ram,
+        jenis_storage: editForm.jenis_storage,
+        kapasitas_storage: editForm.kapasitas_storage,
+        mac_ethernet: editForm.mac_ethernet,
+        mac_wireless: editForm.mac_wireless,
+        ip_ethernet: editForm.ip_ethernet,
+        ip_wireless: editForm.ip_wireless,
+        serial_number_monitor: editForm.serial_number_monitor,
+        tanggal_entry: editForm.tanggal_entry,
+        status_perangkat: editForm.status_perangkat,
+        petugas_id: editForm.petugas_id,
+        updated_at: new Date().toISOString(),
+      };
+
       const { error } = await supabase
         .from('perangkat')
-        .update({
-          ...editForm,
-          updated_at: new Date().toISOString(),
-        })
+        .update(updateData)
         .eq('id', editingId);
 
       if (error) throw error;
@@ -737,16 +783,12 @@ const StokOpnam = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           8. MAC Ethernet
                         </label>
-                        <input
-                          type="text"
+                        <MACAddressInput
                           value={step2Form.mac_ethernet}
-                          onChange={(e) =>
-                            setStep2Form({ ...step2Form, mac_ethernet: e.target.value })
+                          onChange={(value) =>
+                            setStep2Form({ ...step2Form, mac_ethernet: value })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                          placeholder="AA:BB:CC:DD:EE:FF"
-                          pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
-                          title="Format: AA:BB:CC:DD:EE:FF atau AA-BB-CC-DD-EE-FF"
+                          placeholder="00:00:00:00:00:00"
                         />
                       </div>
 
@@ -755,16 +797,12 @@ const StokOpnam = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           9. MAC Wireless
                         </label>
-                        <input
-                          type="text"
+                        <MACAddressInput
                           value={step2Form.mac_wireless}
-                          onChange={(e) =>
-                            setStep2Form({ ...step2Form, mac_wireless: e.target.value })
+                          onChange={(value) =>
+                            setStep2Form({ ...step2Form, mac_wireless: value })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
-                          placeholder="AA:BB:CC:DD:EE:FF"
-                          pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
-                          title="Format: AA:BB:CC:DD:EE:FF atau AA-BB-CC-DD-EE-FF"
+                          placeholder="00:00:00:00:00:00"
                         />
                       </div>
 
@@ -773,16 +811,12 @@ const StokOpnam = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           10. IP Ethernet
                         </label>
-                        <input
-                          type="text"
+                        <IPAddressInput
                           value={step2Form.ip_ethernet}
-                          onChange={(e) =>
-                            setStep2Form({ ...step2Form, ip_ethernet: e.target.value })
+                          onChange={(value) =>
+                            setStep2Form({ ...step2Form, ip_ethernet: value })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
                           placeholder="192.168.1.100"
-                          pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"
-                          title="Format: 192.168.1.100"
                         />
                       </div>
 
@@ -791,16 +825,12 @@ const StokOpnam = () => {
                         <label className="block text-sm font-medium text-gray-700 mb-1">
                           11. IP Wireless
                         </label>
-                        <input
-                          type="text"
+                        <IPAddressInput
                           value={step2Form.ip_wireless}
-                          onChange={(e) =>
-                            setStep2Form({ ...step2Form, ip_wireless: e.target.value })
+                          onChange={(value) =>
+                            setStep2Form({ ...step2Form, ip_wireless: value })
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
                           placeholder="192.168.1.101"
-                          pattern="^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$"
-                          title="Format: 192.168.1.101"
                         />
                       </div>
 
@@ -1157,11 +1187,13 @@ const StokOpnam = () => {
                     </label>
                     <select
                       required
+                      disabled
                       value={editForm.jenis_perangkat_kode || ''}
                       onChange={(e) =>
                         setEditForm({ ...editForm, jenis_perangkat_kode: e.target.value })
                       }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed"
+                      title="Jenis Perangkat tidak dapat diubah"
                     >
                       <option value="">-- Pilih Jenis Perangkat --</option>
                       {jenisPerangkatList.map((jenis) => (
@@ -1313,15 +1345,12 @@ const StokOpnam = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       MAC Ethernet
                     </label>
-                    <input
-                      type="text"
-                      placeholder="XX:XX:XX:XX:XX:XX"
+                    <MACAddressInput
                       value={editForm.mac_ethernet || ''}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, mac_ethernet: e.target.value })
+                      onChange={(value) =>
+                        setEditForm({ ...editForm, mac_ethernet: value })
                       }
-                      pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="00:00:00:00:00:00"
                     />
                   </div>
 
@@ -1330,15 +1359,12 @@ const StokOpnam = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       MAC Wireless
                     </label>
-                    <input
-                      type="text"
-                      placeholder="XX:XX:XX:XX:XX:XX"
+                    <MACAddressInput
                       value={editForm.mac_wireless || ''}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, mac_wireless: e.target.value })
+                      onChange={(value) =>
+                        setEditForm({ ...editForm, mac_wireless: value })
                       }
-                      pattern="^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="00:00:00:00:00:00"
                     />
                   </div>
 
@@ -1347,15 +1373,12 @@ const StokOpnam = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       IP Ethernet
                     </label>
-                    <input
-                      type="text"
-                      placeholder="192.168.x.x"
+                    <IPAddressInput
                       value={editForm.ip_ethernet || ''}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, ip_ethernet: e.target.value })
+                      onChange={(value) =>
+                        setEditForm({ ...editForm, ip_ethernet: value })
                       }
-                      pattern="^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="192.168.1.100"
                     />
                   </div>
 
@@ -1364,15 +1387,12 @@ const StokOpnam = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       IP Wireless
                     </label>
-                    <input
-                      type="text"
-                      placeholder="192.168.x.x"
+                    <IPAddressInput
                       value={editForm.ip_wireless || ''}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, ip_wireless: e.target.value })
+                      onChange={(value) =>
+                        setEditForm({ ...editForm, ip_wireless: value })
                       }
-                      pattern="^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      placeholder="192.168.1.100"
                     />
                   </div>
 
