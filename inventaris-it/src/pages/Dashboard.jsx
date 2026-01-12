@@ -9,10 +9,61 @@ const Dashboard = () => {
   const [perJenisPerangkat, setPerJenisPerangkat] = useState([]);
   const [perPetugas, setPerPetugas] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  // Modal state for breakdown per lokasi
+  const [showBreakdownModal, setShowBreakdownModal] = useState(false);
+  const [selectedJenisPerangkat, setSelectedJenisPerangkat] = useState(null);
+  const [breakdownPerLokasi, setBreakdownPerLokasi] = useState([]);
+  const [loadingBreakdown, setLoadingBreakdown] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
   }, []);
+
+  const fetchBreakdownPerLokasi = async (jenisPerangkatKode, jenisPerangkatNama) => {
+    try {
+      setLoadingBreakdown(true);
+      setSelectedJenisPerangkat({ kode: jenisPerangkatKode, nama: jenisPerangkatNama });
+      setShowBreakdownModal(true);
+
+      // Fetch perangkat by jenis perangkat with lokasi info
+      const { data, error } = await supabase
+        .from('perangkat')
+        .select(`
+          lokasi_kode,
+          lokasi:ms_lokasi!perangkat_lokasi_kode_fkey(kode, nama)
+        `)
+        .eq('jenis_perangkat_kode', jenisPerangkatKode);
+
+      if (error) throw error;
+
+      // Count per lokasi
+      const lokasiCount = data.reduce((acc, item) => {
+        const kode = item.lokasi_kode;
+        const nama = item.lokasi?.nama || 'Unknown';
+        
+        if (!acc[kode]) {
+          acc[kode] = {
+            kode: kode,
+            nama: nama,
+            count: 0,
+          };
+        }
+        acc[kode].count++;
+        return acc;
+      }, {});
+
+      // Convert to array and sort by count (descending)
+      const lokasiArray = Object.values(lokasiCount).sort((a, b) => b.count - a.count);
+      
+      setBreakdownPerLokasi(lokasiArray);
+    } catch (error) {
+      console.error('Error fetching breakdown per lokasi:', error.message);
+      alert('Gagal memuat data breakdown per lokasi: ' + error.message);
+    } finally {
+      setLoadingBreakdown(false);
+    }
+  };
 
   const fetchDashboardData = async () => {
     try {
@@ -135,7 +186,9 @@ const Dashboard = () => {
               {perJenisPerangkat.map((item, index) => (
                 <div
                   key={item.kode}
-                  className="flex items-center justify-between p-4 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors"
+                  onClick={() => fetchBreakdownPerLokasi(item.kode, item.nama)}
+                  className="flex items-center justify-between p-4 bg-gray-700 rounded-lg hover:bg-gray-600 transition-colors cursor-pointer"
+                  title={`Klik untuk lihat breakdown ${item.nama} per ruangan`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-cyan-600 flex items-center justify-center text-white font-bold text-sm">
@@ -356,6 +409,79 @@ const Dashboard = () => {
           )}
         </div>
       </div>
+
+      {/* Modal Breakdown per Lokasi */}
+      {showBreakdownModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+          <div className="bg-gray-900 rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 my-8">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-2xl font-bold text-white">
+                  Breakdown: {selectedJenisPerangkat?.nama}
+                </h2>
+                <p className="text-sm text-gray-400 mt-1">
+                  Jumlah perangkat per ruangan (diurutkan dari terbanyak)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBreakdownModal(false);
+                  setSelectedJenisPerangkat(null);
+                  setBreakdownPerLokasi([]);
+                }}
+                className="text-gray-400 hover:text-white transition text-2xl font-bold leading-none"
+                title="Tutup"
+              >
+                ×
+              </button>
+            </div>
+
+            {loadingBreakdown ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-500"></div>
+              </div>
+            ) : breakdownPerLokasi.length > 0 ? (
+              <div className="space-y-3">
+                {breakdownPerLokasi.map((lokasi, index) => (
+                  <div
+                    key={lokasi.kode}
+                    className="flex items-center justify-between p-4 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors border border-gray-700"
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white font-bold">
+                        {index + 1}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-white">{lokasi.nama}</p>
+                        <p className="text-xs text-gray-400">Kode: {lokasi.kode}</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-3xl font-bold text-cyan-400">{lokasi.count}</p>
+                      <p className="text-xs text-gray-400">perangkat</p>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Total */}
+                <div className="mt-4 pt-4 border-t border-gray-700">
+                  <div className="flex items-center justify-between p-4 bg-gradient-to-r from-cyan-900 to-blue-900 rounded-lg">
+                    <p className="font-bold text-white text-lg">Total</p>
+                    <p className="text-3xl font-bold text-cyan-300">
+                      {breakdownPerLokasi.reduce((sum, item) => sum + item.count, 0)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-400">
+                <p className="text-lg">Tidak ada data</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </Layout>
   );
 };
