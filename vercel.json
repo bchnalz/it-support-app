@@ -1,0 +1,12 @@
+{
+  "buildCommand": "cd inventaris-it && npm install && npm run build",
+  "outputDirectory": "inventaris-it/dist",
+  "installCommand": "cd inventaris-it && npm install",
+  "devCommand": "cd inventaris-it && npm run dev",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
