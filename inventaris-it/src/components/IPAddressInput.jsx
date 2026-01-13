@@ -5,7 +5,7 @@ import { useRef, useState, useEffect } from 'react';
  * Format: XXX.XXX.XXX.XXX (0-255 per segment)
  * Features: Auto-jump, validation, copy-paste support
  */
-export default function IPAddressInput({ value, onChange, placeholder = '0.0.0.0' }) {
+export default function IPAddressInput({ value, onChange, placeholder = '...' }) {
   const [segments, setSegments] = useState(['', '', '', '']);
   const inputRefs = [useRef(null), useRef(null), useRef(null), useRef(null)];
 

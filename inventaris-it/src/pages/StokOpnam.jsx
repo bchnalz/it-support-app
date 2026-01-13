@@ -841,7 +841,6 @@ const StokOpnam = () => {
                           onChange={(value) =>
                             setStep2Form({ ...step2Form, ip_ethernet: value })
                           }
-                          placeholder="192.168.1.100"
                         />
                       </div>
 
@@ -855,7 +854,6 @@ const StokOpnam = () => {
                           onChange={(value) =>
                             setStep2Form({ ...step2Form, ip_wireless: value })
                           }
-                          placeholder="192.168.1.101"
                         />
                       </div>
 
@@ -1393,7 +1391,6 @@ const StokOpnam = () => {
                       onChange={(value) =>
                         setEditForm({ ...editForm, ip_ethernet: value })
                       }
-                      placeholder="192.168.1.100"
                     />
                   </div>
 
@@ -1407,7 +1404,6 @@ const StokOpnam = () => {
                       onChange={(value) =>
                         setEditForm({ ...editForm, ip_wireless: value })
                       }
-                      placeholder="192.168.1.100"
                     />
                   </div>
 
