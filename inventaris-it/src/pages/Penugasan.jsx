@@ -889,7 +889,7 @@ const Penugasan = () => {
                                 👤 IT Support ({item.user_count})
                               </p>
                               <div className="space-y-1">
-                                {item.assigned_users && JSON.parse(item.assigned_users).map((u, idx) => (
+                                {item.assigned_users && (typeof item.assigned_users === 'string' ? JSON.parse(item.assigned_users) : item.assigned_users).map((u, idx) => (
                                   <p key={idx} className="text-xs text-blue-900">
                                     • {u.name} ({u.email})
                                   </p>
@@ -905,7 +905,7 @@ const Penugasan = () => {
                                 🔧 Perangkat ({item.device_count})
                               </p>
                               <div className="space-y-1">
-                                {item.assigned_devices && JSON.parse(item.assigned_devices).map((d, idx) => (
+                                {item.assigned_devices && (typeof item.assigned_devices === 'string' ? JSON.parse(item.assigned_devices) : item.assigned_devices).map((d, idx) => (
                                   <p key={idx} className="text-xs text-purple-900 font-mono">
                                     • {d.id_perangkat} - {d.nama_perangkat}
                                   </p>
@@ -1441,44 +1441,44 @@ const Penugasan = () => {
         </div>
 
         {/* Table */}
-        <div className="bg-white rounded-xl shadow-md overflow-hidden">
+        <div className="bg-gray-800 rounded-xl shadow-md overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-700">
+              <thead className="bg-gray-700">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     No. Tugas
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Aksi
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Judul & SKP
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     IT Support
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Prioritas
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Dibuat
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Durasi
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-gray-800 divide-y divide-gray-700">
                 {tasks.map((task) => (
-                  <tr key={task.id} className="hover:bg-gray-50 transition-colors">
+                  <tr key={task.id} className="hover:bg-gray-700 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
                         onClick={() => handleViewDetail(task)}
-                        className="text-sm font-mono font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        className="text-sm font-mono font-bold text-blue-400 hover:text-blue-300 hover:underline cursor-pointer"
                         title="Klik untuk lihat detail"
                       >
                         {task.task_number}
@@ -1488,7 +1488,7 @@ const Penugasan = () => {
                       <div className="flex gap-2">
                         <button
                           onClick={() => handleViewDetail(task)}
-                          className="text-blue-600 hover:text-blue-800 text-lg"
+                          className="text-blue-400 hover:text-blue-300 text-lg"
                           title="Lihat detail"
                         >
                           👁️
@@ -1496,7 +1496,7 @@ const Penugasan = () => {
                         {task.status === 'pending' && (
                           <button
                             onClick={() => handleDeleteClick(task)}
-                            className="text-red-600 hover:text-red-800 text-lg"
+                            className="text-red-400 hover:text-red-300 text-lg"
                             title="Hapus tugas"
                           >
                             🗑️
@@ -1506,8 +1506,8 @@ const Penugasan = () => {
                     </td>
                     <td className="px-6 py-4">
                       <div>
-                        <p className="text-sm font-semibold text-gray-900">{task.title}</p>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-sm font-semibold text-white">{task.title}</p>
+                        <p className="text-xs text-gray-400">
                           {task.skp_category?.name}
                         </p>
                       </div>
@@ -1517,18 +1517,18 @@ const Penugasan = () => {
                         <div className="space-y-1">
                           {task.assigned_users.map((au, idx) => (
                             <div key={idx}>
-                              <p className="text-sm font-medium text-gray-900">
+                              <p className="text-sm font-medium text-white">
                                 {au.profiles?.full_name}
                               </p>
                               {idx === 0 && (
-                                <p className="text-xs text-gray-500">
+                                <p className="text-xs text-gray-400">
                                   {au.profiles?.email}
                                 </p>
                               )}
                             </div>
                           ))}
                           {task.assigned_users.length > 1 && (
-                            <p className="text-xs text-blue-600 font-semibold">
+                            <p className="text-xs text-blue-400 font-semibold">
                               +{task.assigned_users.length - 1} petugas lain
                             </p>
                           )}
@@ -1543,12 +1543,12 @@ const Penugasan = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getStatusBadge(task.status)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                       {formatDate(task.created_at)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                       {task.status === 'completed' ? (
-                        <span className="font-semibold text-green-600">
+                        <span className="font-semibold text-green-400">
                           {task.total_duration_minutes} menit
                         </span>
                       ) : (
@@ -1562,7 +1562,7 @@ const Penugasan = () => {
           </div>
 
           {tasks.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
+            <div className="text-center py-12 text-gray-400">
               <p className="text-lg">Belum ada tugas yang dibuat</p>
               <p className="text-sm mt-2">Klik tombol "Buat Tugas Baru" untuk memulai</p>
             </div>

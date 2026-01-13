@@ -397,8 +397,8 @@ const DaftarTugas = () => {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Daftar Tugas</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <h1 className="text-3xl font-bold text-white">Daftar Tugas</h1>
+          <p className="mt-1 text-sm text-gray-400">
             Kelola tugas yang diberikan kepada Anda
           </p>
         </div>
@@ -599,25 +599,25 @@ const DaftarTugas = () => {
 
         {/* Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-gray-600">Total Tugas</p>
-            <p className="text-2xl font-bold text-gray-900">{tasks.length}</p>
+          <div className="bg-gray-800 rounded-lg shadow p-4">
+            <p className="text-sm text-gray-400">Total Tugas</p>
+            <p className="text-2xl font-bold text-white">{tasks.length}</p>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-gray-600">Tugas Baru</p>
-            <p className="text-2xl font-bold text-yellow-600">
+          <div className="bg-gray-800 rounded-lg shadow p-4">
+            <p className="text-sm text-gray-400">Tugas Baru</p>
+            <p className="text-2xl font-bold text-yellow-400">
               {tasks.filter(t => t.user_status === 'pending').length}
             </p>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-gray-600">Sedang Dikerjakan</p>
-            <p className="text-2xl font-bold text-purple-600">
+          <div className="bg-gray-800 rounded-lg shadow p-4">
+            <p className="text-sm text-gray-400">Sedang Dikerjakan</p>
+            <p className="text-2xl font-bold text-purple-400">
               {tasks.filter(t => ['in_progress', 'paused'].includes(t.user_status)).length}
             </p>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-gray-600">Selesai</p>
-            <p className="text-2xl font-bold text-green-600">
+          <div className="bg-gray-800 rounded-lg shadow p-4">
+            <p className="text-sm text-gray-400">Selesai</p>
+            <p className="text-2xl font-bold text-green-400">
               {tasks.filter(t => t.user_status === 'completed').length}
             </p>
           </div>
@@ -626,20 +626,20 @@ const DaftarTugas = () => {
         {/* Tasks List */}
         <div className="space-y-4">
           {tasks.map((task) => (
-            <div key={task.id} className="bg-white rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow">
+            <div key={task.id} className="bg-gray-800 rounded-xl shadow-md p-6 hover:bg-gray-700 transition">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    <span className="text-sm font-mono font-bold text-blue-600">
+                    <span className="text-sm font-mono font-bold text-blue-400">
                       {task.task_number}
                     </span>
                     {getPriorityBadge(task.priority)}
                     {getStatusBadge(task.user_status)}
                   </div>
                   
-                  <h3 className="text-lg font-bold text-gray-900 mb-1">{task.title}</h3>
+                  <h3 className="text-lg font-bold text-white mb-1">{task.title}</h3>
                   
-                  <div className="flex flex-wrap gap-3 text-sm text-gray-600">
+                  <div className="flex flex-wrap gap-3 text-sm text-gray-300">
                     <span>📋 {task.skp_category?.name}</span>
                     <span>👤 {task.assigned_by_user?.name}</span>
                     <span>🕐 {formatDate(task.created_at)}</span>
@@ -647,7 +647,7 @@ const DaftarTugas = () => {
 
                   {(task.user_status === 'in_progress' || task.user_status === 'paused') && (
                     <div className="mt-2">
-                      <span className="text-lg font-bold text-purple-600">
+                      <span className="text-lg font-bold text-purple-400">
                         ⏱️ {formatDuration(elapsedTime[task.id] || task.user_work_duration)}
                       </span>
                     </div>
@@ -655,7 +655,7 @@ const DaftarTugas = () => {
 
                   {task.user_status === 'completed' && (
                     <div className="mt-2">
-                      <span className="text-lg font-bold text-green-600">
+                      <span className="text-lg font-bold text-green-400">
                         ✅ Durasi: {formatDuration(task.user_work_duration)}
                       </span>
                     </div>
@@ -665,7 +665,7 @@ const DaftarTugas = () => {
                 <div className="flex flex-wrap gap-2">
                   <button
                     onClick={() => handleViewDetail(task)}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition text-sm"
+                    className="px-4 py-2 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 transition text-sm"
                   >
                     👁️ Detail
                   </button>
@@ -719,7 +719,7 @@ const DaftarTugas = () => {
           ))}
 
           {tasks.length === 0 && (
-            <div className="bg-white rounded-xl shadow-md p-12 text-center text-gray-500">
+            <div className="bg-gray-800 rounded-xl shadow-md p-12 text-center text-gray-400">
               <p className="text-lg">Belum ada tugas yang diberikan kepada Anda</p>
             </div>
           )}
