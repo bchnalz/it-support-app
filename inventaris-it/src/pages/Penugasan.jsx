@@ -25,6 +25,11 @@ const Penugasan = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletionReason, setDeletionReason] = useState('');
   
+  // NEW: Deletion history modal
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [deletionHistory, setDeletionHistory] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -569,6 +574,32 @@ const Penugasan = () => {
     }
   };
 
+  // NEW: Fetch deletion history
+  const fetchDeletionHistory = async () => {
+    try {
+      setLoadingHistory(true);
+      
+      const { data, error } = await supabase
+        .from('task_deletion_history_view')
+        .select('*')
+        .order('deleted_at', { ascending: false });
+
+      if (error) throw error;
+      
+      setDeletionHistory(data || []);
+    } catch (error) {
+      console.error('Error fetching deletion history:', error.message);
+      toast.error('❌ Gagal memuat history: ' + error.message);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleOpenHistory = () => {
+    setShowHistoryModal(true);
+    fetchDeletionHistory();
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -590,12 +621,21 @@ const Penugasan = () => {
               Buat dan kelola tugas untuk IT Support
             </p>
           </div>
-          <button
-            onClick={handleAdd}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
-          >
-            + Buat Tugas Baru
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleOpenHistory}
+              className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
+              title="Lihat history tugas yang dihapus"
+            >
+              🗑️ History Sampah
+            </button>
+            <button
+              onClick={handleAdd}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
+            >
+              + Buat Tugas Baru
+            </button>
+          </div>
         </div>
 
         {/* DETAIL MODAL */}
@@ -720,6 +760,180 @@ const Penugasan = () => {
                   onClick={() => {
                     setShowDetailModal(false);
                     setSelectedTask(null);
+                  }}
+                  className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DELETION HISTORY MODAL */}
+        {showHistoryModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto my-8">
+              {/* Header */}
+              <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex justify-between items-start">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">🗑️ History Tugas yang Dihapus</h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Audit trail untuk semua tugas yang telah dihapus
+                  </p>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowHistoryModal(false);
+                    setDeletionHistory([]);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 text-2xl font-bold leading-none"
+                >
+                  ×
+                </button>
+              </div>
+
+              {/* Content */}
+              <div className="p-6">
+                {loadingHistory ? (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+                  </div>
+                ) : deletionHistory.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-lg text-gray-500">Belum ada tugas yang dihapus</p>
+                    <p className="text-sm text-gray-400 mt-2">History akan muncul di sini ketika ada tugas yang dihapus</p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Summary */}
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <p className="text-sm text-blue-800">
+                        📊 Total: <span className="font-bold text-lg">{deletionHistory.length}</span> tugas telah dihapus
+                      </p>
+                    </div>
+
+                    {/* List */}
+                    {deletionHistory.map((item, index) => (
+                      <div key={item.id} className="bg-white border border-gray-200 rounded-lg p-5 hover:shadow-md transition">
+                        {/* Header Row */}
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-2xl font-bold text-gray-400">#{index + 1}</span>
+                            <div>
+                              <p className="text-sm font-mono font-bold text-red-600">{item.task_number}</p>
+                              <div className="flex items-center gap-2 mt-1">
+                                {item.status === 'pending' && (
+                                  <span className="px-2 py-0.5 bg-yellow-100 text-yellow-800 text-xs font-semibold rounded">
+                                    Pending
+                                  </span>
+                                )}
+                                {item.priority && (
+                                  <span className={`px-2 py-0.5 text-xs font-semibold rounded ${
+                                    item.priority === 'urgent' ? 'bg-red-100 text-red-800' :
+                                    item.priority === 'high' ? 'bg-orange-100 text-orange-800' :
+                                    item.priority === 'normal' ? 'bg-blue-100 text-blue-800' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {item.priority}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right text-sm text-gray-500">
+                            <p className="font-semibold text-red-600">Dihapus: {formatDate(item.deleted_at)}</p>
+                            <p className="text-xs">Dibuat: {formatDate(item.created_at)}</p>
+                          </div>
+                        </div>
+
+                        {/* Task Info */}
+                        <div className="mb-3">
+                          <h3 className="text-lg font-bold text-gray-900 mb-1">{item.task_title}</h3>
+                          {item.task_description && (
+                            <p className="text-sm text-gray-600 line-clamp-2">{item.task_description}</p>
+                          )}
+                        </div>
+
+                        {/* Grid Info */}
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                          {/* SKP Category */}
+                          {item.skp_category_name && (
+                            <div>
+                              <p className="text-xs text-gray-500">SKP</p>
+                              <p className="text-sm font-medium text-gray-900">{item.skp_category_name}</p>
+                            </div>
+                          )}
+
+                          {/* Assigned By */}
+                          {item.assigned_by_name && (
+                            <div>
+                              <p className="text-xs text-gray-500">Dibuat oleh</p>
+                              <p className="text-sm font-medium text-gray-900">{item.assigned_by_name}</p>
+                            </div>
+                          )}
+
+                          {/* Deleted By */}
+                          <div>
+                            <p className="text-xs text-gray-500">Dihapus oleh</p>
+                            <p className="text-sm font-semibold text-red-600">{item.deleted_by_name || 'Unknown'}</p>
+                          </div>
+                        </div>
+
+                        {/* Assigned Users & Devices */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                          {/* Users */}
+                          {item.user_count > 0 && (
+                            <div className="bg-blue-50 rounded-lg p-3">
+                              <p className="text-xs text-blue-700 font-semibold mb-2">
+                                👤 IT Support ({item.user_count})
+                              </p>
+                              <div className="space-y-1">
+                                {item.assigned_users && JSON.parse(item.assigned_users).map((u, idx) => (
+                                  <p key={idx} className="text-xs text-blue-900">
+                                    • {u.name} ({u.email})
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Devices */}
+                          {item.device_count > 0 && (
+                            <div className="bg-purple-50 rounded-lg p-3">
+                              <p className="text-xs text-purple-700 font-semibold mb-2">
+                                🔧 Perangkat ({item.device_count})
+                              </p>
+                              <div className="space-y-1">
+                                {item.assigned_devices && JSON.parse(item.assigned_devices).map((d, idx) => (
+                                  <p key={idx} className="text-xs text-purple-900 font-mono">
+                                    • {d.id_perangkat} - {d.nama_perangkat}
+                                  </p>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Deletion Reason */}
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                          <p className="text-xs font-semibold text-red-700 mb-1">💬 Alasan Penghapusan:</p>
+                          <p className="text-sm text-red-900 italic">
+                            "{item.deletion_reason || 'Tidak ada alasan'}"
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="sticky bottom-0 bg-gray-50 border-t border-gray-200 p-4 flex justify-end">
+                <button
+                  onClick={() => {
+                    setShowHistoryModal(false);
+                    setDeletionHistory([]);
                   }}
                   className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition"
                 >
