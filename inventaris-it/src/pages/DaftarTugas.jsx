@@ -40,19 +40,11 @@ const DaftarTugas = () => {
     try {
       setLoading(true);
       
-      // DEBUG: Check user object
-      console.log('🔍 DaftarTugas - Current user:', user);
-      console.log('🔍 DaftarTugas - User ID:', user.id);
-      console.log('🔍 DaftarTugas - User email:', user.email);
-      
       // Get tasks where current user is assigned
       const { data: userAssignments, error: assignError } = await supabase
         .from('task_assignment_users')
         .select('task_assignment_id, status, work_duration_minutes')
         .eq('user_id', user.id);
-      
-      // DEBUG: Check query result
-      console.log('🔍 DaftarTugas - Query result:', { userAssignments, assignError });
 
       if (assignError) throw assignError;
 
@@ -63,46 +55,17 @@ const DaftarTugas = () => {
       }
 
       const taskIds = userAssignments.map(a => a.task_assignment_id);
-      
-      // DEBUG: Check task IDs
-      console.log('🔍 DaftarTugas - Task IDs:', taskIds);
-      console.log('🔍 DaftarTugas - Query:', { table: 'task_assignments', filter: 'id IN', ids: taskIds });
 
-      // DEBUG: Test auth context
-      const { data: authTest, error: authError } = await supabase.auth.getSession();
-      console.log('🔑 DaftarTugas - Auth session:', authTest?.session?.user?.id);
-      
-      // DEBUG: Test if RLS allows reading task_assignment_users
-      const { data: tauTest, error: tauError } = await supabase
-        .from('task_assignment_users')
-        .select('*')
-        .eq('user_id', user.id);
-      console.log('🧪 DaftarTugas - Can read task_assignment_users?', { count: tauTest?.length, error: tauError });
-
-      // DEBUG: Test direct query with exact ID
-      if (taskIds.length > 0) {
-        const { data: testData, error: testError } = await supabase
-          .from('task_assignments')
-          .select('*')
-          .eq('id', taskIds[0]);
-        console.log('🧪 DaftarTugas - Direct .eq() test:', { testData, testError });
-        
-        // Test WITHOUT any auth (should fail if RLS working)
-        const { data: noAuthTest } = await supabase
-          .from('task_assignments')
-          .select('count');
-        console.log('📊 DaftarTugas - Total tasks in DB (should be 0 if RLS working):', noAuthTest);
-      }
-
-      // Get task details - TEMPORARILY SIMPLIFIED (no joins)
+      // Get task details with related data
       const { data: tasksData, error: tasksError } = await supabase
         .from('task_assignments')
-        .select('*')  // Simple query without joins for testing
+        .select(`
+          *,
+          skp_category:skp_categories(code, name),
+          assigned_by_user:profiles!task_assignments_assigned_by_fkey(full_name, email)
+        `)
         .in('id', taskIds)
         .order('created_at', { ascending: false });
-
-      // DEBUG: Check tasks query result
-      console.log('🔍 DaftarTugas - Tasks query result:', { tasksData, tasksError });
 
       if (tasksError) throw tasksError;
 
@@ -116,9 +79,6 @@ const DaftarTugas = () => {
         };
       });
 
-      // DEBUG: Check final tasks
-      console.log('🔍 DaftarTugas - Final tasks:', tasksWithUserData);
-      
       setTasks(tasksWithUserData);
     } catch (error) {
       console.error('Error fetching tasks:', error.message);
