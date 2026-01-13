@@ -18,6 +18,7 @@ import UserCategoryAssignment from './pages/UserCategoryAssignment';
 import SKPCategoryAssignment from './pages/SKPCategoryAssignment';
 import Penugasan from './pages/Penugasan';
 import DaftarTugas from './pages/DaftarTugas';
+import ProgressSKP from './pages/ProgressSKP';
 
 const AppRoutes = () => {
   const { user, loading } = useAuth();
@@ -181,6 +182,16 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute allowedRoles={['administrator', 'it_support', 'helpdesk', 'user']}>
             <DaftarTugas />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - Progress SKP (All authenticated users) */}
+      <Route
+        path="/progress-skp"
+        element={
+          <ProtectedRoute>
+            <ProgressSKP />
           </ProtectedRoute>
         }
       />

@@ -34,6 +34,11 @@ const StokOpnam = () => {
   
   // Detail view state
   const [viewingDetail, setViewingDetail] = useState(null);
+  const [detailTab, setDetailTab] = useState('detail'); // 'detail' or 'history'
+  
+  // History state
+  const [historyData, setHistoryData] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   
   // Step 1 form (minimal)
   const [step1Form, setStep1Form] = useState({
@@ -134,7 +139,14 @@ const StokOpnam = () => {
   const getFilteredJenisBarang = (jenisPerangkatKode) => {
     if (!jenisPerangkatKode) return jenisBarangList;
     
-    return jenisBarangList.filter(jb => jb.jenis_perangkat_kode === jenisPerangkatKode);
+    const filtered = jenisBarangList.filter(jb => jb.jenis_perangkat_kode === jenisPerangkatKode);
+    
+    console.log('🔍 Filtering Jenis Barang:');
+    console.log('  Selected Jenis Perangkat Kode:', jenisPerangkatKode);
+    console.log('  All Jenis Barang:', jenisBarangList);
+    console.log('  Filtered Jenis Barang:', filtered);
+    
+    return filtered;
   };
 
   const generateIdPerangkat = async (kode) => {
@@ -224,10 +236,10 @@ const StokOpnam = () => {
         id_remoteaccess: step2Form.id_remoteaccess || '-',
         spesifikasi_processor: step2Form.spesifikasi_processor || '-',
         kapasitas_ram: step2Form.kapasitas_ram || '-',
-        mac_ethernet: step2Form.mac_ethernet || '-',
-        mac_wireless: step2Form.mac_wireless || '-',
-        ip_ethernet: step2Form.ip_ethernet || '-',
-        ip_wireless: step2Form.ip_wireless || '-',
+        mac_ethernet: step2Form.mac_ethernet || null,
+        mac_wireless: step2Form.mac_wireless || null,
+        ip_ethernet: step2Form.ip_ethernet || null,
+        ip_wireless: step2Form.ip_wireless || null,
         serial_number_monitor: step2Form.serial_number_monitor || '-',
         status_perangkat: step2Form.status_perangkat ? 'layak' : 'rusak',
       };
@@ -328,10 +340,10 @@ const StokOpnam = () => {
         id_remoteaccess: editForm.id_remoteaccess,
         spesifikasi_processor: editForm.spesifikasi_processor,
         kapasitas_ram: editForm.kapasitas_ram,
-        mac_ethernet: editForm.mac_ethernet,
-        mac_wireless: editForm.mac_wireless,
-        ip_ethernet: editForm.ip_ethernet,
-        ip_wireless: editForm.ip_wireless,
+        mac_ethernet: editForm.mac_ethernet || null,
+        mac_wireless: editForm.mac_wireless || null,
+        ip_ethernet: editForm.ip_ethernet || null,
+        ip_wireless: editForm.ip_wireless || null,
         serial_number_monitor: editForm.serial_number_monitor,
         tanggal_entry: editForm.tanggal_entry,
         status_perangkat: editForm.status_perangkat,
@@ -493,6 +505,65 @@ const StokOpnam = () => {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  // Fetch repair history for a device
+  const fetchRepairHistory = async (perangkatId) => {
+    try {
+      setLoadingHistory(true);
+      
+      // Get repair history from view
+      const { data, error } = await supabase
+        .from('device_repair_history')
+        .select('*')
+        .eq('perangkat_id', perangkatId)
+        .order('task_created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      setHistoryData(data || []);
+    } catch (error) {
+      console.error('Error fetching repair history:', error.message);
+      toast.error('❌ Gagal load history: ' + error.message);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const handleViewDetail = async (item) => {
+    setViewingDetail(item);
+    setDetailTab('detail');
+    setHistoryData([]);
+    // Fetch history immediately
+    await fetchRepairHistory(item.id);
+  };
+
+  const getTaskStatusBadge = (status) => {
+    const badges = {
+      pending: 'bg-yellow-100 text-yellow-800',
+      acknowledged: 'bg-blue-100 text-blue-800',
+      in_progress: 'bg-purple-100 text-purple-800',
+      paused: 'bg-orange-100 text-orange-800',
+      completed: 'bg-green-100 text-green-800',
+      cancelled: 'bg-gray-100 text-gray-800',
+      on_hold: 'bg-orange-100 text-orange-800',
+    };
+    
+    const labels = {
+      pending: 'Menunggu',
+      acknowledged: 'Dikonfirmasi',
+      in_progress: 'Dikerjakan',
+      paused: 'Tertunda',
+      completed: 'Selesai',
+      cancelled: 'Dibatalkan',
+      on_hold: 'On Hold',
+    };
+
+    return (
+      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${badges[status] || 'bg-gray-100 text-gray-800'}`}>
+        {labels[status] || status}
+      </span>
+    );
   };
 
   if (loading) {
@@ -841,6 +912,7 @@ const StokOpnam = () => {
                           onChange={(value) =>
                             setStep2Form({ ...step2Form, ip_ethernet: value })
                           }
+                          placeholder="192.168.1.100"
                         />
                       </div>
 
@@ -854,6 +926,7 @@ const StokOpnam = () => {
                           onChange={(value) =>
                             setStep2Form({ ...step2Form, ip_wireless: value })
                           }
+                          placeholder="192.168.1.101"
                         />
                       </div>
 
@@ -951,17 +1024,25 @@ const StokOpnam = () => {
           </div>
         )}
 
-        {/* DETAIL VIEW MODAL */}
+        {/* DETAIL VIEW MODAL WITH TABS */}
         {viewingDetail && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-            <div className="bg-gray-900 rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 my-8">
-              <div className="flex justify-between items-start mb-6">
-                <h2 className="text-2xl font-bold text-white">
-                  Detail Perangkat
-                </h2>
+            <div className="bg-gray-900 rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto my-8">
+              {/* Header */}
+              <div className="flex justify-between items-start p-4 border-b border-gray-700">
+                <div>
+                  <h2 className="text-xl font-bold text-white">Detail Perangkat</h2>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    <span className="font-mono font-bold text-yellow-300">{viewingDetail.id_perangkat}</span> - {viewingDetail.nama_perangkat}
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={() => setViewingDetail(null)}
+                  onClick={() => {
+                    setViewingDetail(null);
+                    setHistoryData([]);
+                    setDetailTab('detail');
+                  }}
                   className="text-gray-400 hover:text-white transition text-2xl font-bold leading-none"
                   title="Tutup"
                 >
@@ -969,101 +1050,122 @@ const StokOpnam = () => {
                 </button>
               </div>
 
-              <div className="space-y-4 text-gray-100">
-                {/* ID Perangkat */}
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">ID Perangkat</p>
-                  <p className="text-lg font-mono font-bold text-[#ffae00]">{viewingDetail.id_perangkat}</p>
-                </div>
+              {/* Tabs */}
+              <div className="flex border-b border-gray-700 bg-gray-800">
+                <button
+                  onClick={() => setDetailTab('detail')}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium transition ${
+                    detailTab === 'detail'
+                      ? 'text-cyan-400 border-b-2 border-cyan-400 bg-gray-900'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  📋 Detail
+                </button>
+                <button
+                  onClick={() => setDetailTab('history')}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium transition ${
+                    detailTab === 'history'
+                      ? 'text-cyan-400 border-b-2 border-cyan-400 bg-gray-900'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  🔧 History Perbaikan
+                  {historyData.length > 0 && (
+                    <span className="ml-1.5 bg-cyan-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                      {historyData.length}
+                    </span>
+                  )}
+                </button>
+              </div>
 
-                {/* Nama Perangkat */}
-                <div>
-                  <p className="text-xs text-gray-500 mb-1">Nama Perangkat</p>
-                  <p className="text-base font-semibold">{viewingDetail.nama_perangkat}</p>
-                </div>
-
+              {/* Tab Content */}
+              <div className="p-4">
+                {/* DETAIL TAB */}
+                {detailTab === 'detail' && (
+                  <div className="space-y-2.5 text-gray-100 text-sm">
                 {/* Status */}
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Status</p>
-                  <p className={`text-base font-semibold ${
+                  <p className="text-xs text-gray-500 mb-0.5">Status</p>
+                  <p className={`text-sm font-semibold ${
                     viewingDetail.status_perangkat === 'layak' ? 'text-green-400' : 'text-red-400'
                   }`}>
                     {viewingDetail.status_perangkat === 'layak' ? '✅ Layak' : '❌ Rusak'}
                   </p>
                 </div>
 
-                {/* ID Remote Access - Langsung di bawah Status */}
+                {/* ID Remote Access */}
                 {viewingDetail.id_remoteaccess && viewingDetail.id_remoteaccess !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">ID Remote Access</p>
-                    <p className="text-base font-mono">{viewingDetail.id_remoteaccess}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">ID Remote Access</p>
+                    <p className="text-sm font-mono">{viewingDetail.id_remoteaccess}</p>
                   </div>
                 )}
 
                 {/* Serial Number */}
                 {viewingDetail.serial_number && viewingDetail.serial_number !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Serial Number</p>
-                    <p className="text-base">{viewingDetail.serial_number}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">Serial Number</p>
+                    <p className="text-sm">{viewingDetail.serial_number}</p>
                   </div>
                 )}
 
                 {/* Lokasi */}
                 {viewingDetail.lokasi && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Lokasi</p>
-                    <p className="text-base">{viewingDetail.lokasi.kode} - {viewingDetail.lokasi.nama}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">Lokasi</p>
+                    <p className="text-sm">{viewingDetail.lokasi.kode} - {viewingDetail.lokasi.nama}</p>
                   </div>
                 )}
 
                 {/* Jenis Perangkat */}
                 {viewingDetail.jenis_perangkat && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Jenis Perangkat</p>
-                    <p className="text-base">{viewingDetail.jenis_perangkat.kode} - {viewingDetail.jenis_perangkat.nama}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">Jenis Perangkat</p>
+                    <p className="text-sm">{viewingDetail.jenis_perangkat.kode} - {viewingDetail.jenis_perangkat.nama}</p>
                   </div>
                 )}
 
                 {/* Jenis Barang */}
                 {viewingDetail.jenis_barang && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Jenis Barang</p>
-                    <p className="text-base">{viewingDetail.jenis_barang.nama}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">Jenis Barang</p>
+                    <p className="text-sm">{viewingDetail.jenis_barang.nama}</p>
                   </div>
                 )}
 
                 {/* Merk */}
                 {viewingDetail.merk && viewingDetail.merk !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Merk</p>
-                    <p className="text-base">{viewingDetail.merk}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">Merk</p>
+                    <p className="text-sm">{viewingDetail.merk}</p>
                   </div>
                 )}
 
                 {/* Processor */}
                 {viewingDetail.spesifikasi_processor && viewingDetail.spesifikasi_processor !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Processor</p>
-                    <p className="text-base">{viewingDetail.spesifikasi_processor}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">Processor</p>
+                    <p className="text-sm">{viewingDetail.spesifikasi_processor}</p>
                   </div>
                 )}
 
                 {/* RAM */}
                 {viewingDetail.kapasitas_ram && viewingDetail.kapasitas_ram !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">RAM</p>
-                    <p className="text-base">{viewingDetail.kapasitas_ram}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">RAM</p>
+                    <p className="text-sm">{viewingDetail.kapasitas_ram}</p>
                   </div>
                 )}
 
                 {/* Storage */}
                 {viewingDetail.perangkat_storage && viewingDetail.perangkat_storage.length > 0 && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-2">Storage</p>
-                    <div className="space-y-1">
+                    <p className="text-xs text-gray-500 mb-1">Storage</p>
+                    <div className="space-y-0.5">
                       {viewingDetail.perangkat_storage.map((storage, index) => (
-                        <div key={storage.id || index} className="flex items-center gap-2 text-base">
-                          <span className="bg-blue-900 text-blue-200 px-2 py-0.5 rounded text-xs font-medium">
+                        <div key={storage.id || index} className="flex items-center gap-2 text-sm">
+                          <span className="bg-blue-900 text-blue-200 px-1.5 py-0.5 rounded text-xs font-medium">
                             {storage.jenis_storage}
                           </span>
                           <span>{storage.kapasitas} GB</span>
@@ -1076,63 +1178,133 @@ const StokOpnam = () => {
                 {/* MAC Address Ethernet */}
                 {viewingDetail.mac_ethernet && viewingDetail.mac_ethernet !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">MAC Address (Ethernet)</p>
-                    <p className="text-base font-mono">{viewingDetail.mac_ethernet}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">MAC Ethernet</p>
+                    <p className="text-sm font-mono">{viewingDetail.mac_ethernet}</p>
                   </div>
                 )}
 
                 {/* MAC Address Wireless */}
                 {viewingDetail.mac_wireless && viewingDetail.mac_wireless !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">MAC Address (Wireless)</p>
-                    <p className="text-base font-mono">{viewingDetail.mac_wireless}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">MAC Wireless</p>
+                    <p className="text-sm font-mono">{viewingDetail.mac_wireless}</p>
                   </div>
                 )}
 
                 {/* IP Ethernet */}
                 {viewingDetail.ip_ethernet && viewingDetail.ip_ethernet !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">IP Address (Ethernet)</p>
-                    <p className="text-base font-mono">{viewingDetail.ip_ethernet}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">IP Ethernet</p>
+                    <p className="text-sm font-mono">{viewingDetail.ip_ethernet}</p>
                   </div>
                 )}
 
                 {/* IP Wireless */}
                 {viewingDetail.ip_wireless && viewingDetail.ip_wireless !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">IP Address (Wireless)</p>
-                    <p className="text-base font-mono">{viewingDetail.ip_wireless}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">IP Wireless</p>
+                    <p className="text-sm font-mono">{viewingDetail.ip_wireless}</p>
                   </div>
                 )}
 
                 {/* Serial Number Monitor */}
                 {viewingDetail.serial_number_monitor && viewingDetail.serial_number_monitor !== '-' && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Serial Number Monitor</p>
-                    <p className="text-base">{viewingDetail.serial_number_monitor}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">SN Monitor</p>
+                    <p className="text-sm">{viewingDetail.serial_number_monitor}</p>
                   </div>
                 )}
 
                 {/* Petugas */}
                 {viewingDetail.petugas && (
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Petugas Entry</p>
-                    <p className="text-base">{viewingDetail.petugas.full_name}</p>
+                    <p className="text-xs text-gray-500 mb-0.5">Petugas Entry</p>
+                    <p className="text-sm">{viewingDetail.petugas.full_name}</p>
                   </div>
                 )}
 
                 {/* Tanggal Entry */}
                 <div>
-                  <p className="text-xs text-gray-500 mb-1">Tanggal Entry</p>
-                  <p className="text-base">{formatDate(viewingDetail.tanggal_entry)}</p>
+                  <p className="text-xs text-gray-500 mb-0.5">Tanggal Entry</p>
+                  <p className="text-sm">{formatDate(viewingDetail.tanggal_entry)}</p>
                 </div>
+                  </div>
+                )}
+
+                {/* HISTORY TAB */}
+                {detailTab === 'history' && (
+                  <div>
+                    {loadingHistory ? (
+                      <div className="flex items-center justify-center py-12">
+                        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-cyan-500"></div>
+                      </div>
+                    ) : historyData.length === 0 ? (
+                      <div className="text-center py-12">
+                        <p className="text-sm text-gray-400">Belum ada riwayat perbaikan</p>
+                        <p className="text-xs text-gray-500 mt-1">Perangkat ini belum pernah diperbaiki</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="bg-cyan-900/20 border border-cyan-700 rounded-lg p-2.5 mb-3">
+                          <p className="text-xs text-cyan-300">
+                            📊 Total: <span className="text-lg font-bold text-cyan-400">{historyData.length}</span> kali diperbaiki
+                          </p>
+                        </div>
+
+                        {historyData.map((history, index) => (
+                          <div key={history.task_id} className="bg-gray-800 border border-gray-700 rounded-lg p-2.5 hover:border-cyan-600 transition">
+                            <div className="flex items-start justify-between mb-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold text-cyan-500">#{index + 1}</span>
+                                <div>
+                                  <p className="text-xs font-mono font-bold text-yellow-300">{history.task_number}</p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                {getTaskStatusBadge(history.task_status)}
+                                <p className="text-xs text-gray-400">{formatDate(history.task_created_at).split(' ')[0]}</p>
+                              </div>
+                            </div>
+
+                            <h3 className="text-sm font-semibold text-white mb-1">{history.task_title}</h3>
+                            
+                            {history.task_description && (
+                              <p className="text-xs text-gray-300 mb-2 line-clamp-2">{history.task_description}</p>
+                            )}
+
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <p className="text-gray-500">Petugas:</p>
+                                <p className="text-white font-medium">{history.assigned_users || '-'}</p>
+                                {history.user_count > 1 && (
+                                  <p className="text-xs text-cyan-400">({history.user_count} orang)</p>
+                                )}
+                              </div>
+                              
+                              {history.completed_at && (
+                                <div>
+                                  <p className="text-gray-500">Selesai:</p>
+                                  <p className="text-green-400 text-xs">{formatDate(history.completed_at)}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Close Button */}
-              <div className="mt-6 flex justify-end">
+              <div className="p-3 border-t border-gray-700 flex justify-end">
                 <button
-                  onClick={() => setViewingDetail(null)}
-                  className="px-6 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition"
+                  onClick={() => {
+                    setViewingDetail(null);
+                    setHistoryData([]);
+                    setDetailTab('detail');
+                  }}
+                  className="px-5 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition"
                 >
                   Tutup
                 </button>
@@ -1391,6 +1563,7 @@ const StokOpnam = () => {
                       onChange={(value) =>
                         setEditForm({ ...editForm, ip_ethernet: value })
                       }
+                      placeholder="192.168.1.100"
                     />
                   </div>
 
@@ -1404,6 +1577,7 @@ const StokOpnam = () => {
                       onChange={(value) =>
                         setEditForm({ ...editForm, ip_wireless: value })
                       }
+                      placeholder="192.168.1.100"
                     />
                   </div>
 
@@ -1593,9 +1767,9 @@ const StokOpnam = () => {
                   <tr key={item.id} className="group hover:bg-gray-700 transition-colors">
                     <td className="px-4 py-3 text-sm font-mono font-bold text-[#ffae00]">
                       <button
-                        onClick={() => setViewingDetail(item)}
+                        onClick={() => handleViewDetail(item)}
                         className="hover:underline cursor-pointer"
-                        title="Lihat detail lengkap"
+                        title="Lihat detail & history"
                       >
                         {item.id_perangkat}
                       </button>
@@ -1648,8 +1822,8 @@ const StokOpnam = () => {
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <button
-                        onClick={() => setViewingDetail(item)}
-                        className="text-sm font-mono font-bold text-[#ffae00] bg-gray-900 px-2 py-1 rounded hover:bg-gray-700 transition"
+                        onClick={() => handleViewDetail(item)}
+                        className="text-sm font-mono font-bold text-[#ffae00] bg-gray-900 px-2 py-1 rounded hover:bg-gray-700 transition mb-2"
                       >
                         {item.id_perangkat}
                       </button>

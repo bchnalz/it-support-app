@@ -28,10 +28,10 @@ const DaftarTugas = () => {
   }, []);
 
   useEffect(() => {
-    // Update timers for tasks in progress or paused
+    // Update timers for tasks in progress or paused (use user_status)
     tasks.forEach(task => {
-      if (task.status === 'in_progress' || task.status === 'paused') {
-        startTimer(task.id, task.started_at, task.total_duration_minutes);
+      if (task.user_status === 'in_progress' || task.user_status === 'paused') {
+        startTimer(task.id, task.started_at, task.user_work_duration);
       }
     });
   }, [tasks]);
@@ -39,18 +39,47 @@ const DaftarTugas = () => {
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      
+      // Get tasks where current user is assigned
+      const { data: userAssignments, error: assignError } = await supabase
+        .from('task_assignment_users')
+        .select('task_assignment_id, status, work_duration_minutes')
+        .eq('user_id', user.id);
+
+      if (assignError) throw assignError;
+
+      if (!userAssignments || userAssignments.length === 0) {
+        setTasks([]);
+        setLoading(false);
+        return;
+      }
+
+      const taskIds = userAssignments.map(a => a.task_assignment_id);
+
+      // Get task details
+      const { data: tasksData, error: tasksError } = await supabase
         .from('task_assignments')
         .select(`
           *,
           skp_category:skp_categories(code, name),
           assigned_by_user:profiles!task_assignments_assigned_by_fkey(full_name, email)
         `)
-        .eq('assigned_to', user.id)
+        .in('id', taskIds)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setTasks(data);
+      if (tasksError) throw tasksError;
+
+      // Merge user status and duration
+      const tasksWithUserData = tasksData.map(task => {
+        const userAssignment = userAssignments.find(a => a.task_assignment_id === task.id);
+        return {
+          ...task,
+          user_status: userAssignment?.status || 'pending',
+          user_work_duration: userAssignment?.work_duration_minutes || 0,
+        };
+      });
+
+      setTasks(tasksWithUserData);
     } catch (error) {
       console.error('Error fetching tasks:', error.message);
     } finally {
@@ -93,13 +122,15 @@ const DaftarTugas = () => {
     try {
       const now = new Date().toISOString();
       
+      // Update user assignment status
       const { error: updateError } = await supabase
-        .from('task_assignments')
+        .from('task_assignment_users')
         .update({
           status: 'acknowledged',
           acknowledged_at: now,
         })
-        .eq('id', task.id);
+        .eq('task_assignment_id', task.id)
+        .eq('user_id', user.id);
 
       if (updateError) throw updateError;
 
@@ -125,13 +156,15 @@ const DaftarTugas = () => {
     try {
       const now = new Date().toISOString();
       
+      // Update user assignment status
       const { error: updateError } = await supabase
-        .from('task_assignments')
+        .from('task_assignment_users')
         .update({
           status: 'in_progress',
           started_at: task.started_at || now, // Keep original start time if resuming
         })
-        .eq('id', task.id);
+        .eq('task_assignment_id', task.id)
+        .eq('user_id', user.id);
 
       if (updateError) throw updateError;
 
@@ -159,15 +192,17 @@ const DaftarTugas = () => {
       const startTime = new Date(task.started_at).getTime();
       const now = Date.now();
       const additionalMinutes = Math.floor((now - startTime) / 60000);
-      const totalMinutes = task.total_duration_minutes + additionalMinutes;
+      const totalMinutes = task.user_work_duration + additionalMinutes;
 
+      // Update user assignment status
       const { error: updateError } = await supabase
-        .from('task_assignments')
+        .from('task_assignment_users')
         .update({
           status: 'paused',
-          total_duration_minutes: totalMinutes,
+          work_duration_minutes: totalMinutes,
         })
-        .eq('id', task.id);
+        .eq('task_assignment_id', task.id)
+        .eq('user_id', user.id);
 
       if (updateError) throw updateError;
 
@@ -203,23 +238,25 @@ const DaftarTugas = () => {
       const now = new Date().toISOString();
       
       // Calculate final duration
-      let totalMinutes = selectedTask.total_duration_minutes;
-      if (selectedTask.started_at && (selectedTask.status === 'in_progress' || selectedTask.status === 'paused')) {
+      let totalMinutes = selectedTask.user_work_duration;
+      if (selectedTask.started_at && (selectedTask.user_status === 'in_progress' || selectedTask.user_status === 'paused')) {
         const startTime = new Date(selectedTask.started_at).getTime();
         const nowTime = Date.now();
         const additionalMinutes = Math.floor((nowTime - startTime) / 60000);
         totalMinutes += additionalMinutes;
       }
 
+      // Update user assignment status
       const { error: updateError } = await supabase
-        .from('task_assignments')
+        .from('task_assignment_users')
         .update({
           status: 'completed',
           completed_at: now,
-          total_duration_minutes: totalMinutes,
-          completion_notes: completionNotes,
+          work_duration_minutes: totalMinutes,
+          notes: completionNotes,
         })
-        .eq('id', selectedTask.id);
+        .eq('task_assignment_id', selectedTask.id)
+        .eq('user_id', user.id);
 
       if (updateError) throw updateError;
 
@@ -569,19 +606,19 @@ const DaftarTugas = () => {
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm text-gray-600">Tugas Baru</p>
             <p className="text-2xl font-bold text-yellow-600">
-              {tasks.filter(t => t.status === 'pending').length}
+              {tasks.filter(t => t.user_status === 'pending').length}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm text-gray-600">Sedang Dikerjakan</p>
             <p className="text-2xl font-bold text-purple-600">
-              {tasks.filter(t => ['in_progress', 'paused'].includes(t.status)).length}
+              {tasks.filter(t => ['in_progress', 'paused'].includes(t.user_status)).length}
             </p>
           </div>
           <div className="bg-white rounded-lg shadow p-4">
             <p className="text-sm text-gray-600">Selesai</p>
             <p className="text-2xl font-bold text-green-600">
-              {tasks.filter(t => t.status === 'completed').length}
+              {tasks.filter(t => t.user_status === 'completed').length}
             </p>
           </div>
         </div>
@@ -597,7 +634,7 @@ const DaftarTugas = () => {
                       {task.task_number}
                     </span>
                     {getPriorityBadge(task.priority)}
-                    {getStatusBadge(task.status)}
+                    {getStatusBadge(task.user_status)}
                   </div>
                   
                   <h3 className="text-lg font-bold text-gray-900 mb-1">{task.title}</h3>
@@ -608,18 +645,18 @@ const DaftarTugas = () => {
                     <span>🕐 {formatDate(task.created_at)}</span>
                   </div>
 
-                  {(task.status === 'in_progress' || task.status === 'paused') && (
+                  {(task.user_status === 'in_progress' || task.user_status === 'paused') && (
                     <div className="mt-2">
                       <span className="text-lg font-bold text-purple-600">
-                        ⏱️ {formatDuration(elapsedTime[task.id] || task.total_duration_minutes)}
+                        ⏱️ {formatDuration(elapsedTime[task.id] || task.user_work_duration)}
                       </span>
                     </div>
                   )}
 
-                  {task.status === 'completed' && (
+                  {task.user_status === 'completed' && (
                     <div className="mt-2">
                       <span className="text-lg font-bold text-green-600">
-                        ✅ Durasi: {formatDuration(task.total_duration_minutes)}
+                        ✅ Durasi: {formatDuration(task.user_work_duration)}
                       </span>
                     </div>
                   )}
@@ -633,7 +670,7 @@ const DaftarTugas = () => {
                     👁️ Detail
                   </button>
 
-                  {task.status === 'pending' && (
+                  {task.user_status === 'pending' && (
                     <button
                       onClick={() => handleAcknowledge(task)}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm"
@@ -642,16 +679,16 @@ const DaftarTugas = () => {
                     </button>
                   )}
 
-                  {(task.status === 'acknowledged' || task.status === 'paused') && (
+                  {(task.user_status === 'acknowledged' || task.user_status === 'paused') && (
                     <button
                       onClick={() => handleStart(task)}
                       className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm"
                     >
-                      ▶️ {task.status === 'paused' ? 'Lanjut' : 'Mulai'}
+                      ▶️ {task.user_status === 'paused' ? 'Lanjut' : 'Mulai'}
                     </button>
                   )}
 
-                  {task.status === 'in_progress' && (
+                  {task.user_status === 'in_progress' && (
                     <>
                       <button
                         onClick={() => handlePause(task)}
@@ -668,7 +705,7 @@ const DaftarTugas = () => {
                     </>
                   )}
 
-                  {task.status === 'paused' && (
+                  {task.user_status === 'paused' && (
                     <button
                       onClick={() => handleCompleteClick(task)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm"

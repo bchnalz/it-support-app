@@ -16,9 +16,8 @@ const Dashboard = () => {
   const [breakdownPerLokasi, setBreakdownPerLokasi] = useState([]);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
 
-  // Task assignment & SKP tracking states
+  // Task assignment tracking states
   const [notifications, setNotifications] = useState([]);
-  const [skpAchievements, setSkpAchievements] = useState([]);
   const [myTasks, setMyTasks] = useState([]);
   const [heldTasks, setHeldTasks] = useState([]);
   const [userCategory, setUserCategory] = useState(null);
@@ -29,7 +28,6 @@ const Dashboard = () => {
     fetchDashboardData();
     fetchUserCategory();
     fetchNotifications();
-    fetchSKPAchievements();
     fetchMyTasks();
     fetchHeldTasks();
     fetchAvgWaitTime();
@@ -83,57 +81,6 @@ const Dashboard = () => {
       setNotifications(data || []);
     } catch (error) {
       console.error('Error fetching notifications:', error);
-    }
-  };
-
-  const fetchSKPAchievements = async () => {
-    try {
-      const currentYear = new Date().getFullYear();
-      
-      // First, get user's category
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('user_category_id')
-        .eq('id', user?.id)
-        .single();
-      
-      if (profileError) throw profileError;
-      
-      if (!profileData?.user_category_id) {
-        // User has no category, show no SKPs
-        setSkpAchievements([]);
-        return;
-      }
-      
-      // Get SKP IDs assigned to user's category
-      const { data: assignedSkps, error: assignedError } = await supabase
-        .from('user_category_skp')
-        .select('skp_category_id')
-        .eq('user_category_id', profileData.user_category_id);
-      
-      if (assignedError) throw assignedError;
-      
-      if (!assignedSkps || assignedSkps.length === 0) {
-        // No SKPs assigned to this category
-        setSkpAchievements([]);
-        return;
-      }
-      
-      const skpIds = assignedSkps.map(item => item.skp_category_id);
-      
-      // Get achievements only for assigned SKPs
-      const { data, error } = await supabase
-        .from('skp_achievements')
-        .select('*')
-        .eq('user_id', user?.id)
-        .eq('year', currentYear)
-        .in('skp_category_id', skpIds);
-      
-      if (error) throw error;
-      setSkpAchievements(data || []);
-    } catch (error) {
-      console.error('Error fetching SKP achievements:', error);
-      setSkpAchievements([]);
     }
   };
 
@@ -349,7 +296,6 @@ const Dashboard = () => {
   }
 
   const unreadNotifications = notifications.filter(n => !n.is_read).length;
-  const currentYear = new Date().getFullYear();
 
   return (
     <Layout>
@@ -521,46 +467,6 @@ const Dashboard = () => {
               </div>
             )}
           </>
-        )}
-
-        {/* SKP Achievements (for IT Support only) */}
-        {userCategory === 'IT Support' && skpAchievements.length > 0 && (
-          <div className="bg-white rounded-xl shadow-md p-6">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              📊 Pencapaian SKP Tahun {currentYear}
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {skpAchievements.map((skp) => (
-                <div key={skp.skp_category_id} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-semibold text-blue-600">{skp.skp_name}</span>
-                    <span className={`text-xs font-semibold ${
-                      skp.achievement_percentage >= 100 ? 'text-green-600' :
-                      skp.achievement_percentage >= 75 ? 'text-yellow-600' : 'text-red-600'
-                    }`}>
-                      {skp.achievement_percentage}%
-                    </span>
-                  </div>
-                  <p className="text-sm font-semibold text-gray-900 mb-2">{skp.skp_name}</p>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">Progress:</span>
-                    <span className="font-bold text-gray-900">
-                      {skp.completed_count} / {skp.target_count}
-                    </span>
-                  </div>
-                  <div className="mt-2 bg-gray-200 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full ${
-                        skp.achievement_percentage >= 100 ? 'bg-green-500' :
-                        skp.achievement_percentage >= 75 ? 'bg-yellow-500' : 'bg-red-500'
-                      }`}
-                      style={{ width: `${Math.min(skp.achievement_percentage, 100)}%` }}
-                    ></div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
         )}
 
         {/* Jumlah Perangkat per Jenis Perangkat */}

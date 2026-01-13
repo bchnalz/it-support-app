@@ -6,16 +6,19 @@ import { useToast } from '../contexts/ToastContext';
 const MasterJenisBarang = () => {
   const toast = useToast();
   const [jenisBarang, setJenisBarang] = useState([]);
+  const [jenisPerangkatList, setJenisPerangkatList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState({
     nama: '',
+    jenis_perangkat_kode: '',
     is_active: true,
   });
 
   useEffect(() => {
     fetchJenisBarang();
+    fetchJenisPerangkat();
   }, []);
 
   const fetchJenisBarang = async () => {
@@ -23,7 +26,11 @@ const MasterJenisBarang = () => {
       setLoading(true);
       const { data, error } = await supabase
         .from('ms_jenis_barang')
-        .select('*')
+        .select(`
+          *,
+          jenis_perangkat:ms_jenis_perangkat!ms_jenis_barang_jenis_perangkat_kode_fkey(kode, nama)
+        `)
+        .order('jenis_perangkat_kode', { ascending: true, nullsFirst: false })
         .order('nama');
 
       if (error) throw error;
@@ -35,15 +42,34 @@ const MasterJenisBarang = () => {
     }
   };
 
+  const fetchJenisPerangkat = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('ms_jenis_perangkat')
+        .select('*')
+        .eq('is_active', true)
+        .order('kode');
+
+      if (error) throw error;
+      setJenisPerangkatList(data || []);
+    } catch (error) {
+      console.error('Error fetching jenis perangkat:', error.message);
+    }
+  };
+
   const handleAdd = () => {
     setEditingId(null);
-    setForm({ nama: '', is_active: true });
+    setForm({ nama: '', jenis_perangkat_kode: '', is_active: true });
     setShowAddForm(true);
   };
 
   const handleEdit = (item) => {
     setEditingId(item.id);
-    setForm({ nama: item.nama, is_active: item.is_active });
+    setForm({ 
+      nama: item.nama, 
+      jenis_perangkat_kode: item.jenis_perangkat_kode || '', 
+      is_active: item.is_active 
+    });
     setShowAddForm(true);
   };
 
@@ -68,7 +94,7 @@ const MasterJenisBarang = () => {
       }
 
       setShowAddForm(false);
-      setForm({ nama: '', is_active: true });
+      setForm({ nama: '', jenis_perangkat_kode: '', is_active: true });
       setEditingId(null);
       fetchJenisBarang();
     } catch (error) {
@@ -132,6 +158,27 @@ const MasterJenisBarang = () => {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Jenis Perangkat
+                  </label>
+                  <select
+                    value={form.jenis_perangkat_kode}
+                    onChange={(e) => setForm({ ...form, jenis_perangkat_kode: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">-- Pilih Jenis Perangkat --</option>
+                    {jenisPerangkatList.map((jenis) => (
+                      <option key={jenis.id} value={jenis.kode}>
+                        {jenis.kode} - {jenis.nama}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Pilih jenis perangkat untuk filtering dropdown di Stok Opnam
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Nama Jenis Barang *
                   </label>
                   <input
@@ -140,7 +187,7 @@ const MasterJenisBarang = () => {
                     value={form.nama}
                     onChange={(e) => setForm({ ...form, nama: e.target.value })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Elektronik"
+                    placeholder="Ink Jet, Laser Jet, Thermal, dll"
                   />
                 </div>
 
@@ -163,7 +210,7 @@ const MasterJenisBarang = () => {
                       onClick={() => {
                         setShowAddForm(false);
                         setEditingId(null);
-                        setForm({ nama: '', is_active: true });
+                        setForm({ nama: '', jenis_perangkat_kode: '', is_active: true });
                       }}
                     className="px-6 py-2 border border-gray-600 rounded-lg text-gray-300 hover:bg-gray-700 transition"
                   >
@@ -182,15 +229,19 @@ const MasterJenisBarang = () => {
         )}
 
         {/* Info Card */}
-        <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex items-start">
             <div className="text-2xl mr-3">ℹ️</div>
             <div>
-              <h3 className="font-semibold text-green-900 mb-1">
-                Jenis Barang untuk Kategorisasi
+              <h3 className="font-semibold text-blue-900 mb-1">
+                Jenis Barang & Filtering
               </h3>
-              <p className="text-sm text-green-800">
-                Jenis barang digunakan untuk kategorisasi perangkat, bukan untuk generate ID Perangkat
+              <p className="text-sm text-blue-800 mb-2">
+                Jenis barang digunakan untuk kategorisasi perangkat. Hubungkan dengan Jenis Perangkat untuk filtering otomatis di Stok Opnam.
+              </p>
+              <p className="text-xs text-blue-700">
+                <strong>Contoh:</strong> Jika Jenis Barang "Ink Jet" dihubungkan dengan Jenis Perangkat "003-Printer", 
+                maka saat user memilih Printer di Stok Opnam, dropdown akan otomatis menampilkan Ink Jet.
               </p>
             </div>
           </div>
@@ -201,6 +252,9 @@ const MasterJenisBarang = () => {
             <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Jenis Perangkat
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Nama Jenis Barang
                 </th>
@@ -215,6 +269,17 @@ const MasterJenisBarang = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {jenisBarang.map((item) => (
                 <tr key={item.id} className="group hover:bg-[#171717] transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 group-hover:text-white">
+                    {item.jenis_perangkat ? (
+                      <span>
+                        <span className="font-mono font-semibold">{item.jenis_perangkat.kode}</span>
+                        {' - '}
+                        <span className="text-gray-600 group-hover:text-gray-300">{item.jenis_perangkat.nama}</span>
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 italic">Tidak terhubung</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 group-hover:text-white">
                     {item.nama}
                   </td>

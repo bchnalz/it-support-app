@@ -24,14 +24,20 @@ const Penugasan = () => {
     description: '',
     priority: 'normal',
     skp_category_id: '',
-    assigned_to: '',
+    assigned_users: [], // Changed from assigned_to to array
+    assigned_perangkat: [], // NEW: Array of selected devices
   });
+
+  // NEW: State for device search
+  const [perangkatList, setPerangkatList] = useState([]);
+  const [perangkatSearch, setPerangkatSearch] = useState('');
 
   useEffect(() => {
     fetchTasks();
     fetchHeldTasks();
     fetchAvailableITSupport();
     fetchSKPCategories();
+    fetchPerangkat(); // NEW: Fetch devices
     
     // Cleanup timers on unmount
     return () => {
@@ -50,30 +56,61 @@ const Penugasan = () => {
 
   useEffect(() => {
     // Filter SKP categories when IT Support is selected
-    if (form.assigned_to) {
-      fetchFilteredSKPCategories(form.assigned_to);
+    // Use first selected user for filtering
+    if (form.assigned_users.length > 0) {
+      fetchFilteredSKPCategories(form.assigned_users[0]);
     } else {
       setFilteredSkpCategories([]);
     }
-  }, [form.assigned_to]);
+  }, [form.assigned_users]);
 
   const fetchTasks = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      
+      // Fetch tasks with assigned users and devices
+      const { data: tasksData, error: tasksError } = await supabase
         .from('task_assignments')
         .select(`
           *,
           skp_category:skp_categories(code, name),
-          assigned_to_user:profiles!task_assignments_assigned_to_fkey(full_name, email),
           assigned_by_user:profiles!task_assignments_assigned_by_fkey(full_name)
         `)
         .eq('assigned_by', user.id)
         .neq('status', 'on_hold')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setTasks(data);
+      if (tasksError) throw tasksError;
+
+      // Fetch assigned users for each task
+      const tasksWithUsers = await Promise.all(
+        tasksData.map(async (task) => {
+          const { data: usersData } = await supabase
+            .from('task_assignment_users')
+            .select(`
+              user_id,
+              status,
+              profiles!task_assignment_users_user_id_fkey(full_name, email)
+            `)
+            .eq('task_assignment_id', task.id);
+          
+          const { data: devicesData } = await supabase
+            .from('task_assignment_perangkat')
+            .select(`
+              perangkat_id,
+              perangkat!task_assignment_perangkat_perangkat_id_fkey(id_perangkat, nama_perangkat)
+            `)
+            .eq('task_assignment_id', task.id);
+
+          return {
+            ...task,
+            assigned_users: usersData || [],
+            assigned_devices: devicesData || [],
+          };
+        })
+      );
+
+      setTasks(tasksWithUsers);
     } catch (error) {
       console.error('Error fetching tasks:', error.message);
     } finally {
@@ -117,9 +154,37 @@ const Penugasan = () => {
         .order('name');
 
       if (error) throw error;
-      setSkpCategories(data);
+      
+      // Filter out "Inventarisasi Perangkat TI" SKP (dihitung otomatis dari stok opnam)
+      const filtered = (data || []).filter(skp => {
+        const nameL = (skp.name || '').toLowerCase();
+        const codeL = (skp.code || '').toLowerCase();
+        return !(
+          nameL.includes('inventaris') && nameL.includes('perangkat') ||
+          nameL.includes('inventarisasi') && nameL.includes('ti') ||
+          codeL.includes('inv') ||
+          codeL === 'skp-011'
+        );
+      });
+      
+      setSkpCategories(filtered);
     } catch (error) {
       console.error('Error fetching SKP categories:', error.message);
+    }
+  };
+
+  // NEW: Fetch perangkat list
+  const fetchPerangkat = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('perangkat')
+        .select('id, id_perangkat, nama_perangkat, status_perangkat')
+        .order('id_perangkat');
+
+      if (error) throw error;
+      setPerangkatList(data || []);
+    } catch (error) {
+      console.error('Error fetching perangkat:', error.message);
     }
   };
 
@@ -153,7 +218,21 @@ const Penugasan = () => {
       if (skpError) throw skpError;
 
       // Extract SKP categories from the nested data
-      const skps = skpData?.map(item => item.skp_categories) || [];
+      let skps = skpData?.map(item => item.skp_categories) || [];
+      
+      // Filter out "Inventarisasi Perangkat TI" SKP (dihitung otomatis dari stok opnam)
+      skps = skps.filter(skp => {
+        const nameL = (skp.name || '').toLowerCase();
+        const codeL = (skp.code || '').toLowerCase();
+        // Exclude inventarisasi perangkat variations
+        return !(
+          nameL.includes('inventaris') && nameL.includes('perangkat') ||
+          nameL.includes('inventarisasi') && nameL.includes('ti') ||
+          codeL.includes('inv') ||
+          codeL === 'skp-011'
+        );
+      });
+      
       setFilteredSkpCategories(skps);
     } catch (error) {
       console.error('Error fetching filtered SKP categories:', error.message);
@@ -167,18 +246,21 @@ const Penugasan = () => {
       description: '',
       priority: 'normal',
       skp_category_id: '',
-      assigned_to: '',
+      assigned_users: [],
+      assigned_perangkat: [],
     });
+    setPerangkatSearch('');
     setShowAddForm(true);
-    // Refresh available IT Support when opening form
+    // Refresh data when opening form
     fetchAvailableITSupport();
+    fetchPerangkat();
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (!form.assigned_to) {
-      toast.warning('Silakan pilih IT Support');
+    if (form.assigned_users.length === 0) {
+      toast.warning('Silakan pilih minimal 1 IT Support');
       return;
     }
 
@@ -187,31 +269,65 @@ const Penugasan = () => {
       return;
     }
 
+    if (form.assigned_perangkat.length === 0) {
+      toast.warning('Silakan pilih minimal 1 perangkat');
+      return;
+    }
+
     try {
-      const { error } = await supabase
+      // 1. Create task assignment
+      const { data: taskData, error: taskError } = await supabase
         .from('task_assignments')
         .insert([{
           title: form.title,
           description: form.description,
           priority: form.priority,
           skp_category_id: form.skp_category_id,
-          assigned_to: form.assigned_to,
           assigned_by: user.id,
           assigned_at: new Date().toISOString(),
           status: 'pending',
-        }]);
+        }])
+        .select()
+        .single();
 
-      if (error) throw error;
+      if (taskError) throw taskError;
 
-      toast.success('✅ Tugas berhasil dibuat!');
+      // 2. Insert assigned users
+      const userInserts = form.assigned_users.map(userId => ({
+        task_assignment_id: taskData.id,
+        user_id: userId,
+        status: 'pending',
+      }));
+
+      const { error: usersError } = await supabase
+        .from('task_assignment_users')
+        .insert(userInserts);
+
+      if (usersError) throw usersError;
+
+      // 3. Insert assigned devices
+      const deviceInserts = form.assigned_perangkat.map(perangkatId => ({
+        task_assignment_id: taskData.id,
+        perangkat_id: perangkatId,
+      }));
+
+      const { error: devicesError } = await supabase
+        .from('task_assignment_perangkat')
+        .insert(deviceInserts);
+
+      if (devicesError) throw devicesError;
+
+      toast.success(`✅ Tugas berhasil dibuat! (${form.assigned_users.length} petugas, ${form.assigned_perangkat.length} perangkat)`);
       setShowAddForm(false);
       setForm({
         title: '',
         description: '',
         priority: 'normal',
         skp_category_id: '',
-        assigned_to: '',
+        assigned_users: [],
+        assigned_perangkat: [],
       });
+      setPerangkatSearch('');
       fetchTasks();
       fetchAvailableITSupport();
     } catch (error) {
@@ -466,7 +582,7 @@ const Penugasan = () => {
 
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Assign ke IT Support *
+                    Assign ke IT Support * (bisa lebih dari 1)
                   </label>
                   {availableITSupport.length === 0 ? (
                     <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4">
@@ -486,19 +602,41 @@ const Penugasan = () => {
                       </div>
                     </div>
                   ) : (
-                    <select
-                      required
-                      value={form.assigned_to}
-                      onChange={(e) => setForm({ ...form, assigned_to: e.target.value, skp_category_id: '' })}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
-                    >
-                      <option value="">-- Pilih IT Support --</option>
-                      {availableITSupport.map((its) => (
-                        <option key={its.id} value={its.id}>
-                          {its.name} ({its.email})
-                        </option>
-                      ))}
-                    </select>
+                    <>
+                      <div className="space-y-2 max-h-48 overflow-y-auto bg-gray-700 border border-gray-600 rounded-lg p-3">
+                        {availableITSupport.map((its) => (
+                          <label key={its.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-600 p-2 rounded">
+                            <input
+                              type="checkbox"
+                              checked={form.assigned_users.includes(its.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setForm({ 
+                                    ...form, 
+                                    assigned_users: [...form.assigned_users, its.id],
+                                    skp_category_id: form.assigned_users.length === 0 ? '' : form.skp_category_id
+                                  });
+                                } else {
+                                  setForm({ 
+                                    ...form, 
+                                    assigned_users: form.assigned_users.filter(id => id !== its.id)
+                                  });
+                                }
+                              }}
+                              className="w-4 h-4 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500"
+                            />
+                            <span className="text-white text-sm">
+                              {its.name} ({its.email})
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      {form.assigned_users.length > 0 && (
+                        <p className="text-xs text-cyan-400 mt-1">
+                          ✅ {form.assigned_users.length} petugas dipilih
+                        </p>
+                      )}
+                    </>
                   )}
                   {availableITSupport.length > 0 && (
                     <p className="text-xs text-gray-400 mt-1">
@@ -512,7 +650,7 @@ const Penugasan = () => {
                     <label className="block text-sm font-medium text-gray-300 mb-1">
                       Kategori SKP *
                     </label>
-                    {!form.assigned_to ? (
+                    {form.assigned_users.length === 0 ? (
                       <div className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-gray-400 text-sm">
                         Pilih IT Support terlebih dahulu
                       </div>
@@ -535,7 +673,7 @@ const Penugasan = () => {
                         ))}
                       </select>
                     )}
-                    {form.assigned_to && filteredSkpCategories.length > 0 && (
+                    {form.assigned_users.length > 0 && filteredSkpCategories.length > 0 && (
                       <p className="text-xs text-gray-400 mt-1">
                         Menampilkan SKP yang di-assign ke kategori IT Support ini
                       </p>
@@ -557,6 +695,61 @@ const Penugasan = () => {
                       <option value="urgent">Mendesak</option>
                     </select>
                   </div>
+                </div>
+
+                {/* NEW: Perangkat Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Pilih Perangkat * (minimal 1)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Cari ID Perangkat..."
+                    value={perangkatSearch}
+                    onChange={(e) => setPerangkatSearch(e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 mb-2"
+                  />
+                  <div className="space-y-2 max-h-48 overflow-y-auto bg-gray-700 border border-gray-600 rounded-lg p-3">
+                    {perangkatList
+                      .filter(p => 
+                        p.id_perangkat.toLowerCase().includes(perangkatSearch.toLowerCase()) ||
+                        (p.nama_perangkat && p.nama_perangkat.toLowerCase().includes(perangkatSearch.toLowerCase()))
+                      )
+                      .map((perangkat) => (
+                        <label key={perangkat.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-600 p-2 rounded">
+                          <input
+                            type="checkbox"
+                            checked={form.assigned_perangkat.includes(perangkat.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setForm({ 
+                                  ...form, 
+                                  assigned_perangkat: [...form.assigned_perangkat, perangkat.id]
+                                });
+                              } else {
+                                setForm({ 
+                                  ...form, 
+                                  assigned_perangkat: form.assigned_perangkat.filter(id => id !== perangkat.id)
+                                });
+                              }
+                            }}
+                            className="w-4 h-4 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500"
+                          />
+                          <span className="text-white text-sm flex-1">
+                            <span className="font-mono font-bold text-yellow-300">{perangkat.id_perangkat}</span>
+                            {perangkat.nama_perangkat && ` - ${perangkat.nama_perangkat}`}
+                            <span className={`ml-2 text-xs ${perangkat.status_perangkat === 'layak' ? 'text-green-400' : 'text-red-400'}`}>
+                              ({perangkat.status_perangkat})
+                            </span>
+                          </span>
+                        </label>
+                      ))}
+                  </div>
+                  {form.assigned_perangkat.length > 0 && (
+                    <p className="text-xs text-cyan-400 mt-1">
+                      ✅ {form.assigned_perangkat.length} perangkat dipilih
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex gap-3 justify-end pt-4">
@@ -837,13 +1030,30 @@ const Penugasan = () => {
                         </p>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <p className="text-sm font-medium text-gray-900">
-                        {task.assigned_to_user?.full_name}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {task.assigned_to_user?.email}
-                      </p>
+                    <td className="px-6 py-4">
+                      {task.assigned_users && task.assigned_users.length > 0 ? (
+                        <div className="space-y-1">
+                          {task.assigned_users.map((au, idx) => (
+                            <div key={idx}>
+                              <p className="text-sm font-medium text-gray-900">
+                                {au.profiles?.full_name}
+                              </p>
+                              {idx === 0 && (
+                                <p className="text-xs text-gray-500">
+                                  {au.profiles?.email}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                          {task.assigned_users.length > 1 && (
+                            <p className="text-xs text-blue-600 font-semibold">
+                              +{task.assigned_users.length - 1} petugas lain
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-gray-400">-</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getPriorityBadge(task.priority)}
