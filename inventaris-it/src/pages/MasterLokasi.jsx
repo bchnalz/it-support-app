@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
+import { useToast } from '../contexts/ToastContext';
 
 const MasterLokasi = () => {
+  const toast = useToast();
   const [lokasi, setLokasi] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -56,14 +58,14 @@ const MasterLokasi = () => {
           .eq('id', editingId);
 
         if (error) throw error;
-        alert('Data berhasil diupdate!');
+        toast.success('✅ Data berhasil diupdate!');
       } else {
         const { error } = await supabase
           .from('ms_lokasi')
           .insert([form]);
 
         if (error) throw error;
-        alert('Data berhasil ditambahkan!');
+        toast.success('✅ Data berhasil ditambahkan!');
       }
 
       setShowAddForm(false);
@@ -71,7 +73,7 @@ const MasterLokasi = () => {
       setEditingId(null);
       fetchLokasi();
     } catch (error) {
-      alert('Gagal menyimpan data: ' + error.message);
+      toast.error('❌ Gagal menyimpan data: ' + error.message);
     }
   };
 
@@ -85,10 +87,10 @@ const MasterLokasi = () => {
         .eq('id', id);
 
       if (error) throw error;
-      alert('Data berhasil dihapus!');
+      toast.success('✅ Data berhasil dihapus!');
       fetchLokasi();
     } catch (error) {
-      alert('Gagal menghapus data: ' + error.message);
+      toast.error('❌ Gagal menghapus data: ' + error.message);
     }
   };
 

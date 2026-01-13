@@ -65,7 +65,7 @@ const ImportData = () => {
       return { petugas: petugasMap, jenisBarang: jenisBarangMap };
     } catch (error) {
       console.error('Error fetching lookup tables:', error);
-      alert('Error loading lookup tables: ' + error.message);
+      toast.error('❌ Error loading lookup tables: ' + error.message);
       return null;
     }
   };
@@ -74,7 +74,7 @@ const ImportData = () => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
       if (!selectedFile.name.endsWith('.csv') && !selectedFile.name.endsWith('.txt')) {
-        alert('File harus berformat CSV atau TXT!');
+        toast.success('✅ File harus berformat CSV atau TXT!');
         return;
       }
       setFile(selectedFile);
@@ -101,7 +101,7 @@ const ImportData = () => {
       const lines = text.split('\n').filter(line => line.trim());
       
       if (lines.length === 0) {
-        alert('File CSV kosong!');
+        toast.success('✅ File CSV kosong!');
         return;
       }
 
@@ -270,7 +270,7 @@ const ImportData = () => {
       });
 
       if (validData.length === 0) {
-        alert('Tidak ada data valid untuk diimport!\n\nPastikan kolom jenis_perangkat_kode, lokasi_kode, dan serial_number terisi.');
+        toast.success('✅ Tidak ada data valid untuk diimport!\n\nPastikan kolom jenis_perangkat_kode, lokasi_kode, dan serial_number terisi.');
         setLoading(false);
         return;
       }

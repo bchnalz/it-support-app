@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import Layout from '../components/Layout';
 
 const Dashboard = () => {
-  const { profile } = useAuth();
+  const { profile, user } = useAuth();
   const [recentPerangkat, setRecentPerangkat] = useState([]);
   const [perJenisPerangkat, setPerJenisPerangkat] = useState([]);
   const [perPetugas, setPerPetugas] = useState([]);
@@ -16,9 +16,196 @@ const Dashboard = () => {
   const [breakdownPerLokasi, setBreakdownPerLokasi] = useState([]);
   const [loadingBreakdown, setLoadingBreakdown] = useState(false);
 
+  // Task assignment & SKP tracking states
+  const [notifications, setNotifications] = useState([]);
+  const [skpAchievements, setSkpAchievements] = useState([]);
+  const [myTasks, setMyTasks] = useState([]);
+  const [heldTasks, setHeldTasks] = useState([]);
+  const [userCategory, setUserCategory] = useState(null);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [avgWaitTime, setAvgWaitTime] = useState(0);
+
   useEffect(() => {
     fetchDashboardData();
+    fetchUserCategory();
+    fetchNotifications();
+    fetchSKPAchievements();
+    fetchMyTasks();
+    fetchHeldTasks();
+    fetchAvgWaitTime();
+    
+    // Setup realtime subscription for notifications
+    const notificationSubscription = supabase
+      .channel('notifications_channel')
+      .on('postgres_changes', 
+        { 
+          event: 'INSERT', 
+          schema: 'public', 
+          table: 'notifications',
+          filter: `user_id=eq.${user?.id}`
+        }, 
+        (payload) => {
+          setNotifications(prev => [payload.new, ...prev]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(notificationSubscription);
+    };
   }, []);
+
+  const fetchUserCategory = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('user_category:user_categories!user_category_id(name)')
+        .eq('id', user?.id)
+        .single();
+      
+      if (error) throw error;
+      setUserCategory(data?.user_category?.name);
+    } catch (error) {
+      console.error('Error fetching user category:', error);
+    }
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+        .limit(10);
+      
+      if (error) throw error;
+      setNotifications(data || []);
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    }
+  };
+
+  const fetchSKPAchievements = async () => {
+    try {
+      const currentYear = new Date().getFullYear();
+      
+      // First, get user's category
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('user_category_id')
+        .eq('id', user?.id)
+        .single();
+      
+      if (profileError) throw profileError;
+      
+      if (!profileData?.user_category_id) {
+        // User has no category, show no SKPs
+        setSkpAchievements([]);
+        return;
+      }
+      
+      // Get SKP IDs assigned to user's category
+      const { data: assignedSkps, error: assignedError } = await supabase
+        .from('user_category_skp')
+        .select('skp_category_id')
+        .eq('user_category_id', profileData.user_category_id);
+      
+      if (assignedError) throw assignedError;
+      
+      if (!assignedSkps || assignedSkps.length === 0) {
+        // No SKPs assigned to this category
+        setSkpAchievements([]);
+        return;
+      }
+      
+      const skpIds = assignedSkps.map(item => item.skp_category_id);
+      
+      // Get achievements only for assigned SKPs
+      const { data, error } = await supabase
+        .from('skp_achievements')
+        .select('*')
+        .eq('user_id', user?.id)
+        .eq('year', currentYear)
+        .in('skp_category_id', skpIds);
+      
+      if (error) throw error;
+      setSkpAchievements(data || []);
+    } catch (error) {
+      console.error('Error fetching SKP achievements:', error);
+      setSkpAchievements([]);
+    }
+  };
+
+  const fetchMyTasks = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('task_assignments')
+        .select('*')
+        .or(`assigned_to.eq.${user?.id},assigned_by.eq.${user?.id}`)
+        .neq('status', 'on_hold');
+      
+      if (error) throw error;
+      setMyTasks(data || []);
+    } catch (error) {
+      console.error('Error fetching tasks:', error);
+    }
+  };
+
+  const fetchHeldTasks = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('task_assignments')
+        .select('*')
+        .eq('status', 'on_hold');
+      
+      if (error) throw error;
+      setHeldTasks(data || []);
+    } catch (error) {
+      console.error('Error fetching held tasks:', error);
+    }
+  };
+
+  const fetchAvgWaitTime = async () => {
+    try {
+      const { data, error } = await supabase
+        .rpc('get_average_waiting_time');
+      
+      if (error) throw error;
+      setAvgWaitTime(data || 0);
+    } catch (error) {
+      console.error('Error fetching avg wait time:', error);
+    }
+  };
+
+  const markNotificationAsRead = async (notificationId) => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('id', notificationId);
+      
+      if (error) throw error;
+      fetchNotifications();
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+    }
+  };
+
+  const markAllNotificationsAsRead = async () => {
+    try {
+      const { error } = await supabase
+        .from('notifications')
+        .update({ is_read: true })
+        .eq('user_id', user?.id)
+        .eq('is_read', false);
+      
+      if (error) throw error;
+      fetchNotifications();
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+    }
+  };
 
   const fetchBreakdownPerLokasi = async (jenisPerangkatKode, jenisPerangkatNama) => {
     try {
@@ -59,7 +246,7 @@ const Dashboard = () => {
       setBreakdownPerLokasi(lokasiArray);
     } catch (error) {
       console.error('Error fetching breakdown per lokasi:', error.message);
-      alert('Gagal memuat data breakdown per lokasi: ' + error.message);
+      toast.error('❌ Gagal memuat data breakdown per lokasi: ' + error.message);
     } finally {
       setLoadingBreakdown(false);
     }
@@ -161,16 +348,220 @@ const Dashboard = () => {
     );
   }
 
+  const unreadNotifications = notifications.filter(n => !n.is_read).length;
+  const currentYear = new Date().getFullYear();
+
   return (
     <Layout>
       <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Selamat datang, {profile?.full_name} ({profile?.role === 'it_support' ? 'IT Support' : 'Helpdesk'})
-          </p>
+        {/* Header with Notifications */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Selamat datang, {profile?.full_name}
+              {userCategory && ` (${userCategory})`}
+            </p>
+          </div>
+          
+          {/* Notification Bell */}
+          <div className="relative">
+            <button
+              onClick={() => setShowNotifications(!showNotifications)}
+              className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-full transition"
+            >
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+              {unreadNotifications > 0 && (
+                <span className="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/2 -translate-y-1/2 bg-red-600 rounded-full">
+                  {unreadNotifications}
+                </span>
+              )}
+            </button>
+
+            {/* Notification Dropdown */}
+            {showNotifications && (
+              <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-xl z-50 border border-gray-200 max-h-[500px] overflow-y-auto">
+                <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+                  <h3 className="font-bold text-gray-900">Notifikasi</h3>
+                  {unreadNotifications > 0 && (
+                    <button
+                      onClick={markAllNotificationsAsRead}
+                      className="text-xs text-blue-600 hover:text-blue-800"
+                    >
+                      Tandai semua dibaca
+                    </button>
+                  )}
+                </div>
+                
+                {notifications.length === 0 ? (
+                  <div className="p-8 text-center text-gray-500">
+                    <p>Tidak ada notifikasi</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {notifications.map((notif) => (
+                      <div
+                        key={notif.id}
+                        className={`p-4 hover:bg-gray-50 cursor-pointer ${!notif.is_read ? 'bg-blue-50' : ''}`}
+                        onClick={() => {
+                          if (!notif.is_read) markNotificationAsRead(notif.id);
+                          if (notif.link) window.location.href = notif.link;
+                        }}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-gray-900">{notif.title}</p>
+                            <p className="text-sm text-gray-600 mt-1">{notif.message}</p>
+                            <p className="text-xs text-gray-400 mt-1">
+                              {new Date(notif.created_at).toLocaleString('id-ID')}
+                            </p>
+                          </div>
+                          {!notif.is_read && (
+                            <div className="ml-2 w-2 h-2 bg-blue-600 rounded-full"></div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Task Statistics (for Helpdesk & IT Support) */}
+        {userCategory && (userCategory === 'Helpdesk' || userCategory === 'IT Support') && (
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div className="bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl shadow-md p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Held Tasks</p>
+                    <p className="text-3xl font-bold mt-1">{heldTasks.length}</p>
+                    {heldTasks.length > 0 && (
+                      <p className="text-xs mt-1 opacity-90">⚠️ Menunggu assign</p>
+                    )}
+                  </div>
+                  <div className="text-4xl opacity-80">⏳</div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl shadow-md p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Tugas Baru</p>
+                    <p className="text-3xl font-bold mt-1">
+                      {myTasks.filter(t => t.status === 'pending' && (userCategory === 'IT Support' ? t.assigned_to === user?.id : t.assigned_by === user?.id)).length}
+                    </p>
+                  </div>
+                  <div className="text-4xl opacity-80">🔔</div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-purple-400 to-purple-600 rounded-xl shadow-md p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Dikerjakan</p>
+                    <p className="text-3xl font-bold mt-1">
+                      {myTasks.filter(t => ['in_progress', 'paused'].includes(t.status) && (userCategory === 'IT Support' ? t.assigned_to === user?.id : t.assigned_by === user?.id)).length}
+                    </p>
+                  </div>
+                  <div className="text-4xl opacity-80">⏱️</div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-green-400 to-green-600 rounded-xl shadow-md p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Selesai</p>
+                    <p className="text-3xl font-bold mt-1">
+                      {myTasks.filter(t => t.status === 'completed' && (userCategory === 'IT Support' ? t.assigned_to === user?.id : t.assigned_by === user?.id)).length}
+                    </p>
+                  </div>
+                  <div className="text-4xl opacity-80">✅</div>
+                </div>
+              </div>
+
+              <div className="bg-gradient-to-br from-blue-400 to-blue-600 rounded-xl shadow-md p-6 text-white">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm opacity-90">Avg Wait</p>
+                    <p className="text-2xl font-bold mt-1">
+                      {avgWaitTime > 0 ? `${Math.round(avgWaitTime)} min` : '-'}
+                    </p>
+                  </div>
+                  <div className="text-4xl opacity-80">📊</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Held Tasks Alert */}
+            {heldTasks.length > 0 && userCategory === 'Helpdesk' && (
+              <div className="bg-orange-50 border-2 border-orange-300 rounded-xl p-4">
+                <div className="flex items-start gap-3">
+                  <span className="text-2xl">⚠️</span>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-orange-900 mb-1">
+                      {heldTasks.length} Tugas Menunggu Assignment
+                    </h3>
+                    <p className="text-sm text-orange-800 mb-2">
+                      Ada tugas yang di-hold karena tidak ada IT Support available. 
+                      Segera assign ketika ada petugas yang tersedia.
+                    </p>
+                    <a 
+                      href="/log-penugasan/penugasan" 
+                      className="inline-block text-sm font-semibold text-orange-700 hover:text-orange-900 underline"
+                    >
+                      Lihat Held Tasks →
+                    </a>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* SKP Achievements (for IT Support only) */}
+        {userCategory === 'IT Support' && skpAchievements.length > 0 && (
+          <div className="bg-white rounded-xl shadow-md p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-4">
+              📊 Pencapaian SKP Tahun {currentYear}
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {skpAchievements.map((skp) => (
+                <div key={skp.skp_category_id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-semibold text-blue-600">{skp.skp_name}</span>
+                    <span className={`text-xs font-semibold ${
+                      skp.achievement_percentage >= 100 ? 'text-green-600' :
+                      skp.achievement_percentage >= 75 ? 'text-yellow-600' : 'text-red-600'
+                    }`}>
+                      {skp.achievement_percentage}%
+                    </span>
+                  </div>
+                  <p className="text-sm font-semibold text-gray-900 mb-2">{skp.skp_name}</p>
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">Progress:</span>
+                    <span className="font-bold text-gray-900">
+                      {skp.completed_count} / {skp.target_count}
+                    </span>
+                  </div>
+                  <div className="mt-2 bg-gray-200 rounded-full h-2">
+                    <div
+                      className={`h-2 rounded-full ${
+                        skp.achievement_percentage >= 100 ? 'bg-green-500' :
+                        skp.achievement_percentage >= 75 ? 'bg-yellow-500' : 'bg-red-500'
+                      }`}
+                      style={{ width: `${Math.min(skp.achievement_percentage, 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Jumlah Perangkat per Jenis Perangkat */}
         <div className="bg-gray-800 rounded-xl shadow-md p-6 border border-gray-700">
@@ -208,73 +599,73 @@ const Dashboard = () => {
         </div>
 
         {/* Tabel Stok Opnam - 10 Data Terbaru */}
-        <div className="bg-white rounded-xl shadow-md overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h2 className="text-xl font-bold text-gray-900">Stok Opnam - Data Terbaru</h2>
-            <p className="text-sm text-gray-500 mt-1">10 perangkat yang terakhir ditambahkan</p>
+        <div className="bg-gray-800 rounded-xl shadow-md overflow-hidden border border-gray-700">
+          <div className="px-6 py-4 border-b border-gray-700">
+            <h2 className="text-xl font-bold text-white">Stok Opnam - Data Terbaru</h2>
+            <p className="text-sm text-white mt-1">10 perangkat yang terakhir ditambahkan</p>
           </div>
 
           {recentPerangkat.length > 0 ? (
             <>
               {/* Desktop Table */}
               <div className="hidden md:block overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y divide-gray-700">
+                  <thead className="bg-gray-900">
                     <tr>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
                         ID Perangkat
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Nama Perangkat
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
                         ID Remote Access
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Tanggal Entry
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Petugas
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Jenis Perangkat
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Jenis Barang
                       </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Status
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="bg-gray-800 divide-y divide-gray-700">
                     {recentPerangkat.map((item) => (
-                      <tr key={item.id} className="group hover:bg-[#171717] transition-colors">
+                      <tr key={item.id} className="group hover:bg-gray-700 transition-colors">
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span className="text-sm font-mono font-bold text-[#ffae00]">
                             {item.id_perangkat}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 group-hover:text-white">
+                        <td className="px-4 py-3 text-sm font-medium text-white">
                           {item.nama_perangkat}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 group-hover:text-gray-300">
+                        <td className="px-4 py-3 text-sm text-white">
                           {item.id_remoteaccess || '-'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 group-hover:text-gray-300">
+                        <td className="px-4 py-3 text-sm text-white">
                           {new Date(item.tanggal_entry).toLocaleDateString('id-ID', {
                             day: '2-digit',
                             month: 'short',
                             year: 'numeric',
                           })}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 group-hover:text-gray-300">
+                        <td className="px-4 py-3 text-sm text-white">
                           {item.petugas?.full_name || '-'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 group-hover:text-gray-300">
+                        <td className="px-4 py-3 text-sm text-white">
                           {item.jenis_perangkat?.nama || '-'}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 group-hover:text-gray-300">
+                        <td className="px-4 py-3 text-sm text-white">
                           {item.jenis_barang?.nama || '-'}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
@@ -293,9 +684,9 @@ const Dashboard = () => {
               </div>
 
               {/* Mobile Cards */}
-              <div className="md:hidden divide-y divide-gray-200">
+              <div className="md:hidden divide-y divide-gray-700">
                 {recentPerangkat.map((item) => (
-                  <div key={item.id} className="group p-4 hover:bg-[#171717] transition-colors">
+                  <div key={item.id} className="group p-4 hover:bg-gray-700 transition-colors">
                     <div className="flex justify-between items-start mb-2">
                       <span className="text-sm font-mono font-bold text-[#ffae00]">
                         {item.id_perangkat}
@@ -308,8 +699,8 @@ const Dashboard = () => {
                         {item.status_perangkat}
                       </span>
                     </div>
-                    <p className="font-bold text-gray-900 group-hover:text-white mb-2">{item.nama_perangkat}</p>
-                    <div className="space-y-1 text-sm text-gray-600 group-hover:text-gray-300">
+                    <p className="font-bold text-white mb-2">{item.nama_perangkat}</p>
+                    <div className="space-y-1 text-sm text-white">
                       <p>
                         <span className="font-medium">Remote:</span>{' '}
                         {item.id_remoteaccess || '-'}
@@ -337,7 +728,7 @@ const Dashboard = () => {
               </div>
             </>
           ) : (
-            <div className="text-center py-12 text-gray-500">
+            <div className="text-center py-12 text-gray-400">
               <p className="text-lg">Belum ada data perangkat</p>
             </div>
           )}

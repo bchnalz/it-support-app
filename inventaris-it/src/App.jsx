@@ -9,9 +9,15 @@ import MasterJenisBarang from './pages/MasterJenisBarang';
 import MasterLokasi from './pages/MasterLokasi';
 import StokOpnam from './pages/StokOpnam';
 import LogPenugasan from './pages/LogPenugasan';
-import History from './pages/History';
 import ImportData from './pages/ImportData';
 import UserManagement from './pages/UserManagement';
+// Task Assignment System
+import MasterKategoriUser from './pages/MasterKategoriUser';
+import MasterSKP from './pages/MasterSKP';
+import UserCategoryAssignment from './pages/UserCategoryAssignment';
+import SKPCategoryAssignment from './pages/SKPCategoryAssignment';
+import Penugasan from './pages/Penugasan';
+import DaftarTugas from './pages/DaftarTugas';
 
 const AppRoutes = () => {
   const { user, loading } = useAuth();
@@ -109,22 +115,72 @@ const AppRoutes = () => {
         }
       />
 
-      {/* Protected Routes - History (All authenticated users) */}
-      <Route
-        path="/history"
-        element={
-          <ProtectedRoute>
-            <History />
-          </ProtectedRoute>
-        }
-      />
-
       {/* Protected Routes - User Management (Administrator only) */}
       <Route
         path="/user-management"
         element={
           <ProtectedRoute allowedRoles={['administrator']}>
             <UserManagement />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - Master Kategori User (Administrator only) */}
+      <Route
+        path="/master-kategori-user"
+        element={
+          <ProtectedRoute allowedRoles={['administrator']}>
+            <MasterKategoriUser />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - Master SKP (Administrator only) */}
+      <Route
+        path="/master-skp"
+        element={
+          <ProtectedRoute allowedRoles={['administrator']}>
+            <MasterSKP />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - User Category Assignment (Administrator only) */}
+      <Route
+        path="/user-category-assignment"
+        element={
+          <ProtectedRoute allowedRoles={['administrator']}>
+            <UserCategoryAssignment />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - SKP Category Assignment (Administrator only) */}
+      <Route
+        path="/skp-category-assignment"
+        element={
+          <ProtectedRoute allowedRoles={['administrator']}>
+            <SKPCategoryAssignment />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - Penugasan (Helpdesk only) */}
+      <Route
+        path="/log-penugasan/penugasan"
+        element={
+          <ProtectedRoute allowedRoles={['administrator', 'it_support', 'helpdesk', 'user']}>
+            <Penugasan />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - Daftar Tugas (IT Support only) */}
+      <Route
+        path="/log-penugasan/daftar-tugas"
+        element={
+          <ProtectedRoute allowedRoles={['administrator', 'it_support', 'helpdesk', 'user']}>
+            <DaftarTugas />
           </ProtectedRoute>
         }
       />

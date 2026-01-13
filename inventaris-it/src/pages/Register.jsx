@@ -75,12 +75,12 @@ const Register = () => {
 
       if (error) throw error;
 
-      alert(`✅ Request submitted successfully!\n\nYour account request has been sent to administrators for approval.\n\nYou will receive an email once your request is reviewed.`);
+      toast.success('✅ Request submitted! Menunggu persetujuan administrator.');
       
       navigate('/login');
     } catch (error) {
       console.error('Error submitting request:', error);
-      alert('❌ Error: ' + error.message);
+      toast.error('❌ ❌ Error: ' + error.message);
     } finally {
       setLoading(false);
     }

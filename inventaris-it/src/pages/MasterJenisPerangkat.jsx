@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
+import { useToast } from '../contexts/ToastContext';
 
 const MasterJenisPerangkat = () => {
+  const toast = useToast();
   const [jenisPerangkat, setJenisPerangkat] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showAddForm, setShowAddForm] = useState(false);
@@ -57,7 +59,7 @@ const MasterJenisPerangkat = () => {
           .eq('id', editingId);
 
         if (error) throw error;
-        alert('Data berhasil diupdate!');
+        toast.success('✅ Data berhasil diupdate!');
       } else {
         // Insert
         const { error } = await supabase
@@ -65,7 +67,7 @@ const MasterJenisPerangkat = () => {
           .insert([form]);
 
         if (error) throw error;
-        alert('Data berhasil ditambahkan!');
+        toast.success('✅ Data berhasil ditambahkan!');
       }
 
       setShowAddForm(false);
@@ -73,7 +75,7 @@ const MasterJenisPerangkat = () => {
       setEditingId(null);
       fetchJenisPerangkat();
     } catch (error) {
-      alert('Gagal menyimpan data: ' + error.message);
+      toast.error('❌ Gagal menyimpan data: ' + error.message);
     }
   };
 
@@ -87,10 +89,10 @@ const MasterJenisPerangkat = () => {
         .eq('id', id);
 
       if (error) throw error;
-      alert('Data berhasil dihapus!');
+      toast.success('✅ Data berhasil dihapus!');
       fetchJenisPerangkat();
     } catch (error) {
-      alert('Gagal menghapus data: ' + error.message);
+      toast.error('❌ Gagal menghapus data: ' + error.message);
     }
   };
 

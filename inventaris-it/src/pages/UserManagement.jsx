@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../contexts/AuthContext';
 import Layout from '../components/Layout';
+import { useToast } from '../contexts/ToastContext';
 
 const UserManagement = () => {
   const { profile } = useAuth();
+  const toast = useToast();
   const [activeTab, setActiveTab] = useState('pending'); // pending, approved, all-users
   const [loading, setLoading] = useState(true);
   const [requests, setRequests] = useState([]);
@@ -40,7 +42,7 @@ const UserManagement = () => {
       setRequests(data || []);
     } catch (error) {
       console.error('Error fetching requests:', error);
-      alert('Error loading requests: ' + error.message);
+      toast.error('❌ Error loading requests: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -59,7 +61,7 @@ const UserManagement = () => {
       setUsers(data || []);
     } catch (error) {
       console.error('Error fetching users:', error);
-      alert('Error loading users: ' + error.message);
+      toast.success('✅ Error loading users: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -89,12 +91,12 @@ const UserManagement = () => {
 
       if (updateError) throw updateError;
 
-      alert(`✅ Request approved!\n\nUser: ${request.full_name}\nEmail: ${request.email}\n\nIMPORTANT: You need to manually create this user account in Supabase Auth Dashboard with the following details:\n- Email: ${request.email}\n- Role: ${request.requested_role}\n- Status: active`);
+      toast.success(`✅ Request approved! User: ${request.full_name}`);
 
       fetchRequests();
     } catch (error) {
       console.error('Error approving request:', error);
-      alert('❌ Error: ' + error.message);
+      toast.success('✅ ❌ Error: ' + error.message);
     } finally {
       setProcessingId(null);
     }
@@ -120,12 +122,12 @@ const UserManagement = () => {
 
       if (error) throw error;
 
-      alert(`✅ Request rejected.\n\nUser ${request.full_name} will be notified.`);
+      toast.success(`✅ Request rejected. User ${request.full_name} akan dinotifikasi.`);
 
       fetchRequests();
     } catch (error) {
       console.error('Error rejecting request:', error);
-      alert('❌ Error: ' + error.message);
+      toast.success('✅ ❌ Error: ' + error.message);
     } finally {
       setProcessingId(null);
     }
@@ -146,12 +148,12 @@ const UserManagement = () => {
 
       if (error) throw error;
 
-      alert(`✅ User ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully!`);
+      toast.success(`✅ User ${newStatus === 'active' ? 'activated' : 'deactivated'} successfully!`);
 
       fetchUsers();
     } catch (error) {
       console.error('Error updating user status:', error);
-      alert('❌ Error: ' + error.message);
+      toast.success('✅ ❌ Error: ' + error.message);
     }
   };
 

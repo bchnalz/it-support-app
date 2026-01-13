@@ -49,7 +49,7 @@ const LogPenugasan = () => {
 
       if (error) throw error;
 
-      alert('Log penugasan berhasil disimpan!');
+      toast.error('❌ Log penugasan berhasil disimpan!');
       setForm({
         id_perangkat: '',
         uraian_tugas: '',
@@ -57,7 +57,7 @@ const LogPenugasan = () => {
         poin_skp: '',
       });
     } catch (error) {
-      alert('Gagal menyimpan log: ' + error.message);
+      toast.error('❌ Gagal menyimpan log: ' + error.message);
     } finally {
       setLoading(false);
     }

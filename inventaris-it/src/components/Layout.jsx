@@ -9,11 +9,14 @@ const Layout = ({ children }) => {
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMasterOpen, setIsMasterOpen] = useState(false);
+  const [isLogPenugasanOpen, setIsLogPenugasanOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [userCategory, setUserCategory] = useState(null);
 
   useEffect(() => {
-    if (profile?.role === 'administrator') {
+    if (profile?.id) {
       fetchUnreadNotifications();
+      fetchUserCategory();
       
       const subscription = supabase
         .channel('notifications')
@@ -32,6 +35,23 @@ const Layout = ({ children }) => {
       };
     }
   }, [profile]);
+
+  const fetchUserCategory = async () => {
+    if (!profile?.id) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('user_category:user_categories!user_category_id(name)')
+        .eq('id', profile.id)
+        .single();
+      
+      if (error) throw error;
+      setUserCategory(data?.user_category?.name);
+    } catch (error) {
+      console.error('Error fetching user category:', error);
+    }
+  };
 
   const fetchUnreadNotifications = async () => {
     if (!profile?.id) return;
@@ -91,26 +111,6 @@ const Layout = ({ children }) => {
       roles: ['administrator', 'it_support', 'helpdesk', 'user'] 
     },
     { 
-      path: '/log-penugasan', 
-      label: 'Log Penugasan', 
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-        </svg>
-      ),
-      roles: ['administrator', 'it_support', 'helpdesk', 'user'] 
-    },
-    { 
-      path: '/history', 
-      label: 'History', 
-      icon: (
-        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-      ),
-      roles: ['administrator', 'it_support', 'helpdesk', 'user'] 
-    },
-    { 
       path: '/import-data', 
       label: 'Import Data', 
       icon: (
@@ -126,10 +126,26 @@ const Layout = ({ children }) => {
     { path: '/master-jenis-perangkat', label: 'Jenis Perangkat', roles: ['administrator', 'it_support', 'helpdesk', 'user'] },
     { path: '/master-jenis-barang', label: 'Jenis Barang', roles: ['administrator', 'it_support', 'helpdesk', 'user'] },
     { path: '/master-lokasi', label: 'Lokasi', roles: ['administrator', 'it_support', 'helpdesk', 'user'] },
+    { path: '/master-kategori-user', label: 'Kategori User', roles: ['administrator'] },
+    { path: '/master-skp', label: 'Master SKP', roles: ['administrator'] },
+    { path: '/user-category-assignment', label: 'Assign Kategori User', roles: ['administrator'] },
+    { path: '/skp-category-assignment', label: 'Assign SKP ke Kategori', roles: ['administrator'] },
+  ];
+
+  const logPenugasanItems = [
+    { path: '/log-penugasan/penugasan', label: 'Penugasan', showFor: 'Helpdesk', roles: ['administrator', 'it_support', 'helpdesk', 'user'] },
+    { path: '/log-penugasan/daftar-tugas', label: 'Daftar Tugas', showFor: 'IT Support', roles: ['administrator', 'it_support', 'helpdesk', 'user'] },
   ];
 
   const allowedMenuItems = menuItems.filter((item) => item.roles.includes(profile?.role));
   const allowedMasterItems = masterMenuItems.filter((item) => item.roles.includes(profile?.role));
+  const allowedLogPenugasanItems = logPenugasanItems.filter((item) => {
+    if (!item.roles.includes(profile?.role)) return false;
+    // Show all for admin
+    if (profile?.role === 'administrator') return true;
+    // Show based on user category for others
+    return !item.showFor || userCategory === item.showFor;
+  });
 
   return (
     <div className="min-h-screen bg-slate-950 text-gray-100">
@@ -199,6 +215,51 @@ const Layout = ({ children }) => {
               <span className="font-medium">{item.label}</span>
             </Link>
           ))}
+
+          {/* Log Penugasan Menu (Collapsible) */}
+          {allowedLogPenugasanItems.length > 0 && (
+            <div>
+              <button
+                onClick={() => setIsLogPenugasanOpen(!isLogPenugasanOpen)}
+                className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-gray-300 hover:bg-gray-700 hover:text-white transition"
+              >
+                <div className="flex items-center space-x-3">
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span className="font-medium">Log Penugasan</span>
+                </div>
+                <svg
+                  className={`w-4 h-4 transition-transform ${isLogPenugasanOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Log Penugasan Submenu */}
+              {isLogPenugasanOpen && (
+                <div className="ml-8 mt-1 space-y-1">
+                  {allowedLogPenugasanItems.map((item) => (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      onClick={() => setIsSidebarOpen(false)}
+                      className={`block px-3 py-2 rounded-lg text-sm transition ${
+                        isActive(item.path)
+                          ? 'bg-cyan-600 text-white'
+                          : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+                      }`}
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Master Menu (Collapsible) */}
           {allowedMasterItems.length > 0 && (

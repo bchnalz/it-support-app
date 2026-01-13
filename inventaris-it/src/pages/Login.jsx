@@ -33,10 +33,13 @@ const Login = () => {
         <div className="text-center">
           <div className="text-6xl mb-4">💻</div>
           <h2 className="text-3xl font-bold text-gray-100">
-            Inventaris IT
+            SIM Inventaris & Log Penugasan
           </h2>
           <p className="mt-2 text-sm text-gray-400">
             Masuk ke sistem manajemen inventaris
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            Dikembangkan oleh Divisi IT-Support RSUD RTN Sidoarjo
           </p>
         </div>
 

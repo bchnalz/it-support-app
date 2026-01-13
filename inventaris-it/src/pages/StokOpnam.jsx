@@ -5,9 +5,11 @@ import Layout from '../components/Layout';
 import IPAddressInput from '../components/IPAddressInput';
 import MACAddressInput from '../components/MACAddressInput';
 import StorageInput from '../components/StorageInput';
+import { useToast } from '../contexts/ToastContext';
 
 const StokOpnam = () => {
   const { profile } = useAuth();
+  const toast = useToast();
   const [perangkat, setPerangkat] = useState([]);
   const [jenisPerangkatList, setJenisPerangkatList] = useState([]);
   const [jenisBarangList, setJenisBarangList] = useState([]);
@@ -100,7 +102,7 @@ const StokOpnam = () => {
       console.log('✅ State updated successfully!');
     } catch (error) {
       console.error('❌ Error fetching master data:', error);
-      alert('Error loading master data: ' + error.message);
+      toast.error('❌ Error loading master data: ' + error.message);
     }
   };
 
@@ -206,7 +208,7 @@ const StokOpnam = () => {
       setNewPerangkatId(data.id);
       setAddStep(2);
     } catch (error) {
-      alert('❌ Gagal generate ID: ' + error.message);
+      toast.error('❌ Gagal generate ID: ' + error.message);
     }
   };
 
@@ -252,7 +254,7 @@ const StokOpnam = () => {
         if (storageError) throw storageError;
       }
 
-      alert(`✅ Perangkat berhasil ditambahkan!\n\nID Perangkat: ${generatedIdPerangkat}\nNama Perangkat: ${generatedNamaPerangkat}`);
+      toast.success(`✅ Perangkat berhasil ditambahkan! ID: ${generatedIdPerangkat}`);
       
       // Reset forms
       setShowAddForm(false);
@@ -282,7 +284,7 @@ const StokOpnam = () => {
       
       fetchPerangkat();
     } catch (error) {
-      alert('❌ Gagal menyimpan detail: ' + error.message);
+      toast.error('❌ Gagal menyimpan detail: ' + error.message);
     }
   };
 
@@ -367,12 +369,12 @@ const StokOpnam = () => {
         if (storageError) throw storageError;
       }
 
-      alert('Data berhasil diupdate!');
+      toast.success('✅ Data berhasil diupdate!');
       setEditingId(null);
       setEditForm({});
       fetchPerangkat();
     } catch (error) {
-      alert('Gagal update data: ' + error.message);
+      toast.error('❌ Gagal update data: ' + error.message);
     }
   };
 
@@ -509,8 +511,8 @@ const StokOpnam = () => {
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Stok Opnam</h1>
-            <p className="mt-1 text-sm text-gray-500">
+            <h1 className="text-3xl font-bold text-white">Stok Opnam</h1>
+            <p className="mt-1 text-sm text-white">
               Kelola dan update data inventaris perangkat IT
             </p>
           </div>
@@ -1526,16 +1528,16 @@ const StokOpnam = () => {
         </div>
 
         {/* Table - Desktop View */}
-        <div className="bg-white rounded-xl shadow-md overflow-hidden">
+        <div className="bg-gray-800 rounded-xl shadow-md overflow-hidden border border-gray-700">
           <div className="hidden lg:block overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
+            <table className="min-w-full divide-y divide-gray-700">
+              <thead className="bg-gray-900">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">
                     ID Perangkat
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-[#010e29] hover:text-white transition group"
+                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('nama_perangkat')}
                   >
                     <div className="flex items-center gap-1">
@@ -1543,11 +1545,11 @@ const StokOpnam = () => {
                       <SortIcon column="nama_perangkat" />
                     </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">
                     ID Remote Access
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-[#010e29] hover:text-white transition group"
+                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('tanggal_entry')}
                   >
                     <div className="flex items-center gap-1">
@@ -1556,7 +1558,7 @@ const StokOpnam = () => {
                     </div>
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-[#010e29] hover:text-white transition group"
+                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('petugas')}
                   >
                     <div className="flex items-center gap-1">
@@ -1565,7 +1567,7 @@ const StokOpnam = () => {
                     </div>
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-[#010e29] hover:text-white transition group"
+                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('jenis_perangkat')}
                   >
                     <div className="flex items-center gap-1">
@@ -1574,7 +1576,7 @@ const StokOpnam = () => {
                     </div>
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer hover:bg-[#010e29] hover:text-white transition group"
+                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('jenis_barang')}
                   >
                     <div className="flex items-center gap-1">
@@ -1582,17 +1584,17 @@ const StokOpnam = () => {
                       <SortIcon column="jenis_barang" />
                     </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">
                     Aksi
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
+              <tbody className="bg-gray-800 divide-y divide-gray-700">
                 {paginatedPerangkat.map((item) => (
-                  <tr key={item.id} className="group hover:bg-[#171717] transition-colors">
+                  <tr key={item.id} className="group hover:bg-gray-700 transition-colors">
                     <td className="px-4 py-3 text-sm font-mono font-bold text-[#ffae00]">
                       <button
                         onClick={() => setViewingDetail(item)}
@@ -1602,26 +1604,26 @@ const StokOpnam = () => {
                         {item.id_perangkat}
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-900 group-hover:text-white">{item.nama_perangkat}</td>
-                    <td className="px-4 py-3 text-sm text-gray-500 group-hover:text-gray-300">
+                    <td className="px-4 py-3 text-sm text-white">{item.nama_perangkat}</td>
+                    <td className="px-4 py-3 text-sm text-white">
                       {item.id_remoteaccess || '-'}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-500 group-hover:text-gray-300">
+                    <td className="px-4 py-3 text-xs text-white">
                       {formatDate(item.tanggal_entry)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 group-hover:text-gray-300">
+                    <td className="px-4 py-3 text-sm text-white">
                       {item.petugas?.full_name || '-'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 group-hover:text-gray-300">
+                    <td className="px-4 py-3 text-sm text-white">
                       {item.jenis_perangkat?.nama || '-'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-500 group-hover:text-gray-300">
+                    <td className="px-4 py-3 text-sm text-white">
                       {item.jenis_barang?.nama || '-'}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-sm font-medium ${
                         item.status_perangkat === 'layak' 
-                          ? 'text-white' 
+                          ? 'text-green-500' 
                           : 'text-red-400'
                       }`}>
                         {item.status_perangkat}
@@ -1630,7 +1632,7 @@ const StokOpnam = () => {
                     <td className="px-4 py-3 text-sm">
                       <button
                         onClick={() => handleEdit(item)}
-                        className="text-blue-600 hover:text-blue-900 group-hover:text-cyan-400 text-lg"
+                        className="text-cyan-400 hover:text-cyan-300 text-lg"
                         title="Edit perangkat"
                       >
                         ✏️
@@ -1643,20 +1645,20 @@ const StokOpnam = () => {
           </div>
 
           {/* Mobile View - Card */}
-          <div className="lg:hidden divide-y divide-gray-200">
+          <div className="lg:hidden divide-y divide-gray-700">
             {paginatedPerangkat.map((item) => (
-              <div key={item.id} className="p-4">
+              <div key={item.id} className="p-4 hover:bg-gray-700 transition-colors">
                 <div className="space-y-2">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <button
                         onClick={() => setViewingDetail(item)}
-                        className="text-sm font-mono font-bold text-[#ffae00] bg-gray-800 px-2 py-1 rounded hover:bg-gray-700 transition"
+                        className="text-sm font-mono font-bold text-[#ffae00] bg-gray-900 px-2 py-1 rounded hover:bg-gray-700 transition"
                       >
                         {item.id_perangkat}
                       </button>
-                      <p className="font-bold text-gray-900 mt-2">{item.nama_perangkat}</p>
-                      <div className="mt-2 space-y-1 text-sm text-gray-600">
+                      <p className="font-bold text-white mt-2">{item.nama_perangkat}</p>
+                      <div className="mt-2 space-y-1 text-sm text-white">
                         <p>
                           <span className="font-medium">Remote:</span>{' '}
                           {item.id_remoteaccess || '-'}
@@ -1678,15 +1680,15 @@ const StokOpnam = () => {
                     </div>
                     <span className={`text-sm font-medium ${
                       item.status_perangkat === 'layak' 
-                        ? 'text-green-600' 
-                        : 'text-red-600'
+                        ? 'text-green-500' 
+                        : 'text-red-400'
                     }`}>
                       {item.status_perangkat}
                     </span>
                   </div>
                   <button
                     onClick={() => handleEdit(item)}
-                    className="w-full mt-3 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm"
+                    className="w-full mt-3 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700 transition text-sm"
                   >
                     ✏️ Edit Perangkat
                   </button>
@@ -1771,7 +1773,7 @@ const StokOpnam = () => {
           )}
 
           {filteredPerangkat.length === 0 && (
-            <div className="text-center py-12 text-gray-500">
+            <div className="text-center py-12 text-gray-400">
               <p className="text-lg">Tidak ada data ditemukan</p>
             </div>
           )}
