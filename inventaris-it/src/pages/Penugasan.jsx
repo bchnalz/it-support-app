@@ -68,7 +68,7 @@ const Penugasan = () => {
   useEffect(() => {
     // Filter SKP categories when IT Support is selected
     // Use first selected user for filtering
-    if (form.assigned_users.length > 0) {
+    if (form.assigned_users && form.assigned_users.length > 0) {
       fetchFilteredSKPCategories(form.assigned_users[0]);
     } else {
       setFilteredSkpCategories([]);
@@ -380,8 +380,10 @@ const Penugasan = () => {
         description: '',
         priority: 'normal',
         skp_category_id: '',
-        assigned_to: '',
+        assigned_users: [],
+        assigned_perangkat: [],
       });
+      setPerangkatSearch('');
       fetchHeldTasks();
     } catch (error) {
       toast.error('❌ Gagal hold tugas: ' + error.message);
@@ -1217,8 +1219,10 @@ const Penugasan = () => {
                         description: '',
                         priority: 'normal',
                         skp_category_id: '',
-                        assigned_to: '',
+                        assigned_users: [],
+                        assigned_perangkat: [],
                       });
+                      setPerangkatSearch('');
                     }}
                     className="px-6 py-2 border border-gray-600 rounded-lg text-gray-300 hover:bg-gray-700 transition"
                   >
