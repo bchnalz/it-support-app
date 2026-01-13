@@ -19,6 +19,12 @@ const Penugasan = () => {
   const [waitingTime, setWaitingTime] = useState({});
   const timerIntervalRef = useRef({});
   
+  // NEW: Detail & Delete modal states
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletionReason, setDeletionReason] = useState('');
+  
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -514,6 +520,55 @@ const Penugasan = () => {
     });
   };
 
+  // NEW: Handle view task detail
+  const handleViewDetail = (task) => {
+    setSelectedTask(task);
+    setShowDetailModal(true);
+  };
+
+  // NEW: Handle delete task
+  const handleDeleteClick = (task) => {
+    setSelectedTask(task);
+    setDeletionReason('');
+    setShowDeleteModal(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!selectedTask) return;
+
+    if (!deletionReason.trim()) {
+      toast.warning('Alasan penghapusan wajib diisi');
+      return;
+    }
+
+    try {
+      // 1. Log deletion to history
+      const { error: logError } = await supabase.rpc('log_task_deletion', {
+        p_task_id: selectedTask.id,
+        p_deletion_reason: deletionReason
+      });
+
+      if (logError) throw logError;
+
+      // 2. Delete task (cascade will delete task_assignment_users & task_assignment_perangkat)
+      const { error: deleteError } = await supabase
+        .from('task_assignments')
+        .delete()
+        .eq('id', selectedTask.id);
+
+      if (deleteError) throw deleteError;
+
+      toast.success('🗑️ Tugas berhasil dihapus dan diarsipkan');
+      setShowDeleteModal(false);
+      setSelectedTask(null);
+      setDeletionReason('');
+      fetchTasks();
+      fetchHeldTasks();
+    } catch (error) {
+      toast.error('❌ Gagal menghapus tugas: ' + error.message);
+    }
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -542,6 +597,192 @@ const Penugasan = () => {
             + Buat Tugas Baru
           </button>
         </div>
+
+        {/* DETAIL MODAL */}
+        {showDetailModal && selectedTask && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 my-8">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-2xl font-bold text-gray-900">Detail Penugasan</h2>
+                <button
+                  onClick={() => {
+                    setShowDetailModal(false);
+                    setSelectedTask(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 text-2xl font-bold leading-none"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Task Number */}
+                <div>
+                  <p className="text-sm text-gray-600">Nomor Tugas</p>
+                  <p className="text-xl font-mono font-bold text-blue-600">{selectedTask.task_number}</p>
+                </div>
+
+                {/* Title & Description */}
+                <div>
+                  <p className="text-sm text-gray-600">Judul</p>
+                  <p className="text-lg font-semibold text-gray-900">{selectedTask.title}</p>
+                </div>
+
+                {selectedTask.description && (
+                  <div>
+                    <p className="text-sm text-gray-600">Deskripsi</p>
+                    <p className="text-sm text-gray-800 whitespace-pre-wrap">{selectedTask.description}</p>
+                  </div>
+                )}
+
+                {/* Status & Priority */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-gray-600">Status</p>
+                    {getStatusBadge(selectedTask.status)}
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Prioritas</p>
+                    {getPriorityBadge(selectedTask.priority)}
+                  </div>
+                </div>
+
+                {/* SKP Category */}
+                <div>
+                  <p className="text-sm text-gray-600">Kategori SKP</p>
+                  <p className="text-sm font-semibold text-gray-900">{selectedTask.skp_category?.name}</p>
+                </div>
+
+                {/* Assigned Users */}
+                {selectedTask.assigned_users && selectedTask.assigned_users.length > 0 && (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-2">IT Support Ditugaskan ({selectedTask.assigned_users.length})</p>
+                    <div className="space-y-2">
+                      {selectedTask.assigned_users.map((au, idx) => (
+                        <div key={idx} className="flex items-center gap-2 bg-blue-50 p-2 rounded">
+                          <span className="text-2xl">👤</span>
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-gray-900">{au.profiles?.full_name}</p>
+                            <p className="text-xs text-gray-600">{au.profiles?.email}</p>
+                          </div>
+                          {getStatusBadge(au.status)}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Assigned Devices */}
+                {selectedTask.assigned_devices && selectedTask.assigned_devices.length > 0 && (
+                  <div>
+                    <p className="text-sm text-gray-600 mb-2">Perangkat Ditugaskan ({selectedTask.assigned_devices.length})</p>
+                    <div className="space-y-1">
+                      {selectedTask.assigned_devices.map((ad, idx) => (
+                        <div key={idx} className="flex items-center gap-2 bg-gray-50 p-2 rounded text-sm">
+                          <span className="font-mono font-bold text-yellow-600">{ad.perangkat?.id_perangkat}</span>
+                          <span className="text-gray-600">-</span>
+                          <span className="text-gray-900">{ad.perangkat?.nama_perangkat}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Timestamps */}
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-600">Dibuat</p>
+                    <p className="text-gray-900">{formatDate(selectedTask.created_at)}</p>
+                  </div>
+                  {selectedTask.assigned_at && (
+                    <div>
+                      <p className="text-gray-600">Ditugaskan</p>
+                      <p className="text-gray-900">{formatDate(selectedTask.assigned_at)}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-3 justify-end pt-6 border-t mt-6">
+                {selectedTask.status === 'pending' && (
+                  <button
+                    onClick={() => {
+                      setShowDetailModal(false);
+                      handleDeleteClick(selectedTask);
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition text-sm"
+                  >
+                    🗑️ Hapus Tugas
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setShowDetailModal(false);
+                    setSelectedTask(null);
+                  }}
+                  className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DELETE CONFIRMATION MODAL */}
+        {showDeleteModal && selectedTask && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+              <h2 className="text-2xl font-bold text-gray-900 mb-4">⚠️ Hapus Tugas</h2>
+              
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                <p className="text-sm font-semibold text-red-900 mb-1">{selectedTask.task_number}</p>
+                <p className="text-sm text-red-800">{selectedTask.title}</p>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Alasan Penghapusan *
+                </label>
+                <textarea
+                  required
+                  value={deletionReason}
+                  onChange={(e) => setDeletionReason(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                  placeholder="Mengapa tugas ini dihapus? (wajib diisi untuk audit)"
+                  rows="3"
+                />
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                <p className="text-xs text-yellow-800">
+                  ⚠️ Tugas akan dihapus dan diarsipkan ke history. Data dapat dilihat kembali untuk audit.
+                </p>
+              </div>
+
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setSelectedTask(null);
+                    setDeletionReason('');
+                  }}
+                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleDeleteConfirm}
+                  disabled={!deletionReason.trim()}
+                  className="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  🗑️ Ya, Hapus
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Form Modal */}
         {showAddForm && (
@@ -995,6 +1236,9 @@ const Penugasan = () => {
                     No. Tugas
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Aksi
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Judul & SKP
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -1018,9 +1262,33 @@ const Penugasan = () => {
                 {tasks.map((task) => (
                   <tr key={task.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-sm font-mono font-bold text-blue-600">
+                      <button
+                        onClick={() => handleViewDetail(task)}
+                        className="text-sm font-mono font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        title="Klik untuk lihat detail"
+                      >
                         {task.task_number}
-                      </span>
+                      </button>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleViewDetail(task)}
+                          className="text-blue-600 hover:text-blue-800 text-lg"
+                          title="Lihat detail"
+                        >
+                          👁️
+                        </button>
+                        {task.status === 'pending' && (
+                          <button
+                            onClick={() => handleDeleteClick(task)}
+                            className="text-red-600 hover:text-red-800 text-lg"
+                            title="Hapus tugas"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div>
