@@ -34,11 +34,22 @@ const StokOpnam = () => {
   
   // Detail view state
   const [viewingDetail, setViewingDetail] = useState(null);
-  const [detailTab, setDetailTab] = useState('detail'); // 'detail' or 'history'
+  const [detailTab, setDetailTab] = useState('detail'); // 'detail', 'history', or 'mutasi'
   
   // History state
   const [historyData, setHistoryData] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  
+  // Mutasi state
+  const [showMutasiModal, setShowMutasiModal] = useState(false);
+  const [mutasiPerangkat, setMutasiPerangkat] = useState(null);
+  const [mutasiForm, setMutasiForm] = useState({
+    lokasi_baru_kode: '',
+    keterangan: ''
+  });
+  const [loadingMutasi, setLoadingMutasi] = useState(false);
+  const [mutasiHistory, setMutasiHistory] = useState([]);
+  const [loadingMutasiHistory, setLoadingMutasiHistory] = useState(false);
   
   // Step 1 form (minimal)
   const [step1Form, setStep1Form] = useState({
@@ -534,8 +545,101 @@ const StokOpnam = () => {
     setViewingDetail(item);
     setDetailTab('detail');
     setHistoryData([]);
+    setMutasiHistory([]);
     // Fetch history immediately
     await fetchRepairHistory(item.id);
+    await fetchMutasiHistory(item.id);
+  };
+
+  // Handle Mutasi Perangkat
+  const handleOpenMutasi = (item) => {
+    setMutasiPerangkat(item);
+    setMutasiForm({
+      lokasi_baru_kode: '',
+      keterangan: ''
+    });
+    setShowMutasiModal(true);
+  };
+
+  const handleCloseMutasi = () => {
+    setShowMutasiModal(false);
+    setMutasiPerangkat(null);
+    setMutasiForm({
+      lokasi_baru_kode: '',
+      keterangan: ''
+    });
+  };
+
+  const handleSubmitMutasi = async (e) => {
+    e.preventDefault();
+    
+    if (!mutasiPerangkat) return;
+    
+    // Validasi: lokasi baru tidak boleh sama dengan lokasi lama
+    if (mutasiForm.lokasi_baru_kode === mutasiPerangkat.lokasi_kode) {
+      toast.error('❌ Lokasi baru sama dengan lokasi lama!');
+      return;
+    }
+
+    try {
+      setLoadingMutasi(true);
+      
+      // Call RPC function
+      const { data, error } = await supabase
+        .rpc('mutasi_perangkat_process', {
+          p_perangkat_id: mutasiPerangkat.id,
+          p_lokasi_baru_kode: mutasiForm.lokasi_baru_kode,
+          p_keterangan: mutasiForm.keterangan || null
+        });
+
+      if (error) throw error;
+
+      // Check response
+      if (data && data.success) {
+        toast.success('✅ Mutasi perangkat berhasil!');
+        handleCloseMutasi();
+        fetchPerangkat(); // Refresh data
+      } else {
+        throw new Error(data?.message || 'Mutasi gagal');
+      }
+    } catch (error) {
+      console.error('Error mutasi:', error);
+      toast.error('❌ Gagal mutasi perangkat: ' + error.message);
+    } finally {
+      setLoadingMutasi(false);
+    }
+  };
+
+  // Fetch Mutasi History
+  const fetchMutasiHistory = async (perangkatId) => {
+    try {
+      setLoadingMutasiHistory(true);
+      
+      const { data, error } = await supabase
+        .rpc('get_mutasi_history', {
+          p_perangkat_id: perangkatId
+        });
+
+      if (error) throw error;
+      
+      setMutasiHistory(data || []);
+    } catch (error) {
+      console.error('Error fetching mutasi history:', error);
+      setMutasiHistory([]);
+    } finally {
+      setLoadingMutasiHistory(false);
+    }
+  };
+
+  // Get preview nama perangkat baru
+  const getPreviewNamaPerangkat = () => {
+    if (!mutasiPerangkat || !mutasiForm.lokasi_baru_kode) return '';
+    
+    // Extract urutan dari id_perangkat (4 digit terakhir)
+    const urutan = mutasiPerangkat.id_perangkat.split('.').pop();
+    
+    // Generate preview: KODE_LOKASI_BARU-URUTAN
+    return `${mutasiForm.lokasi_baru_kode}-${urutan}`;
   };
 
   const getTaskStatusBadge = (status) => {
@@ -1041,6 +1145,7 @@ const StokOpnam = () => {
                   onClick={() => {
                     setViewingDetail(null);
                     setHistoryData([]);
+                    setMutasiHistory([]);
                     setDetailTab('detail');
                   }}
                   className="text-gray-400 hover:text-white transition text-2xl font-bold leading-none"
@@ -1074,6 +1179,21 @@ const StokOpnam = () => {
                   {historyData.length > 0 && (
                     <span className="ml-1.5 bg-cyan-600 text-white text-xs px-1.5 py-0.5 rounded-full">
                       {historyData.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setDetailTab('mutasi')}
+                  className={`flex-1 px-4 py-2.5 text-sm font-medium transition ${
+                    detailTab === 'mutasi'
+                      ? 'text-cyan-400 border-b-2 border-cyan-400 bg-gray-900'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  🔄 History Mutasi
+                  {mutasiHistory.length > 0 && (
+                    <span className="ml-1.5 bg-green-600 text-white text-xs px-1.5 py-0.5 rounded-full">
+                      {mutasiHistory.length}
                     </span>
                   )}
                 </button>
@@ -1294,6 +1414,94 @@ const StokOpnam = () => {
                     )}
                   </div>
                 )}
+
+                {/* HISTORY MUTASI TAB */}
+                {detailTab === 'mutasi' && (
+                  <div>
+                    {loadingMutasiHistory ? (
+                      <div className="flex items-center justify-center py-12">
+                        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-500"></div>
+                      </div>
+                    ) : mutasiHistory.length === 0 ? (
+                      <div className="text-center py-12">
+                        <p className="text-sm text-gray-400">Belum ada riwayat mutasi</p>
+                        <p className="text-xs text-gray-500 mt-1">Perangkat ini belum pernah dimutasi</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {mutasiHistory.map((mutasi, index) => (
+                          <div
+                            key={mutasi.id}
+                            className="bg-gray-800 border border-gray-700 rounded-lg p-4 hover:border-green-500 transition"
+                          >
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-xl">🔄</span>
+                                <div>
+                                  <p className="text-xs text-gray-500">
+                                    {new Date(mutasi.tanggal_mutasi).toLocaleDateString('id-ID', {
+                                      day: 'numeric',
+                                      month: 'long',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit'
+                                    })}
+                                  </p>
+                                  <p className="text-xs text-gray-400 mt-0.5">
+                                    Oleh: {mutasi.created_by_name}
+                                  </p>
+                                </div>
+                              </div>
+                              <span className="text-xs bg-green-900 text-green-300 px-2 py-1 rounded">
+                                #{mutasiHistory.length - index}
+                              </span>
+                            </div>
+
+                            {/* Mutasi Info */}
+                            <div className="mt-3 space-y-2">
+                              {/* From */}
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="text-gray-500">Dari:</span>
+                                <span className="text-red-400 font-medium">
+                                  {mutasi.lokasi_lama_nama} ({mutasi.lokasi_lama_kode})
+                                </span>
+                                <span className="text-gray-600">•</span>
+                                <span className="text-gray-400">
+                                  {mutasi.nama_perangkat_lama}
+                                </span>
+                              </div>
+
+                              {/* Arrow */}
+                              <div className="text-center text-gray-600">
+                                ↓
+                              </div>
+
+                              {/* To */}
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="text-gray-500">Ke:</span>
+                                <span className="text-green-400 font-medium">
+                                  {mutasi.lokasi_baru_nama} ({mutasi.lokasi_baru_kode})
+                                </span>
+                                <span className="text-gray-600">•</span>
+                                <span className="text-gray-400">
+                                  {mutasi.nama_perangkat_baru}
+                                </span>
+                              </div>
+
+                              {/* Keterangan */}
+                              {mutasi.keterangan && (
+                                <div className="mt-3 pt-3 border-t border-gray-700">
+                                  <p className="text-xs text-gray-500 mb-1">Keterangan:</p>
+                                  <p className="text-sm text-gray-300">{mutasi.keterangan}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Close Button */}
@@ -1302,6 +1510,7 @@ const StokOpnam = () => {
                   onClick={() => {
                     setViewingDetail(null);
                     setHistoryData([]);
+                    setMutasiHistory([]);
                     setDetailTab('detail');
                   }}
                   className="px-5 py-1.5 text-sm bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition"
@@ -1638,6 +1847,138 @@ const StokOpnam = () => {
           </div>
         )}
 
+        {/* MUTASI FORM MODAL */}
+        {showMutasiModal && mutasiPerangkat && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6">
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-900">
+                    🔄 Mutasi Perangkat
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Pindahkan perangkat ke lokasi lain
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleCloseMutasi}
+                  className="text-gray-400 hover:text-gray-600 transition text-2xl font-bold leading-none"
+                  title="Tutup"
+                >
+                  ×
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmitMutasi} className="space-y-5">
+                {/* Current Info */}
+                <div className="bg-gray-50 rounded-lg p-4 border-l-4 border-blue-500">
+                  <p className="text-xs text-gray-500 mb-2">Perangkat Saat Ini</p>
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-gray-900">
+                      {mutasiPerangkat.id_perangkat}
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      <span className="font-medium">Nama:</span> {mutasiPerangkat.nama_perangkat}
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      <span className="font-medium">Lokasi:</span>{' '}
+                      {mutasiPerangkat.lokasi?.nama || mutasiPerangkat.lokasi_kode}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Lokasi Baru */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Lokasi Tujuan <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    required
+                    value={mutasiForm.lokasi_baru_kode}
+                    onChange={(e) => setMutasiForm({ ...mutasiForm, lokasi_baru_kode: e.target.value })}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                  >
+                    <option value="">-- Pilih Lokasi Tujuan --</option>
+                    {lokasiList
+                      .filter((lok) => lok.kode !== mutasiPerangkat.lokasi_kode)
+                      .map((lokasi) => (
+                        <option key={lokasi.kode} value={lokasi.kode}>
+                          {lokasi.kode} - {lokasi.nama}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                {/* Preview Nama Baru */}
+                {mutasiForm.lokasi_baru_kode && (
+                  <div className="bg-green-50 rounded-lg p-4 border-l-4 border-green-500">
+                    <p className="text-xs text-green-700 mb-2">Preview Setelah Mutasi</p>
+                    <div className="space-y-1">
+                      <p className="text-sm text-gray-700">
+                        <span className="font-medium">ID Perangkat:</span>{' '}
+                        <span className="text-blue-600">{mutasiPerangkat.id_perangkat}</span>
+                        {' '}(tetap)
+                      </p>
+                      <p className="text-sm text-gray-700">
+                        <span className="font-medium">Nama Baru:</span>{' '}
+                        <span className="text-green-600 font-semibold">{getPreviewNamaPerangkat()}</span>
+                      </p>
+                      <p className="text-sm text-gray-700">
+                        <span className="font-medium">Lokasi Baru:</span>{' '}
+                        {lokasiList.find((l) => l.kode === mutasiForm.lokasi_baru_kode)?.nama}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Keterangan */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Keterangan (Opsional)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={mutasiForm.keterangan}
+                    onChange={(e) => setMutasiForm({ ...mutasiForm, keterangan: e.target.value })}
+                    placeholder="Alasan mutasi perangkat..."
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
+                  />
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 justify-end pt-4 border-t">
+                  <button
+                    type="button"
+                    onClick={handleCloseMutasi}
+                    disabled={loadingMutasi}
+                    className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loadingMutasi || !mutasiForm.lokasi_baru_kode}
+                    className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {loadingMutasi ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                        <span>Memproses...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>🔄</span>
+                        <span>Mutasi Perangkat</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* Search Bar - Sticky (Freeze Panes) */}
         <div className="sticky top-0 z-10 bg-slate-950 pb-4 pt-2">
           <div className="bg-gray-800 rounded-xl shadow-lg p-4 border border-gray-700">
@@ -1800,13 +2141,29 @@ const StokOpnam = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm">
-                      <button
-                        onClick={() => handleEdit(item)}
-                        className="text-cyan-400 hover:text-cyan-300 text-lg"
-                        title="Edit perangkat"
-                      >
-                        ✏️
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handleViewDetail(item)}
+                          className="text-blue-400 hover:text-blue-300 text-lg"
+                          title="View detail"
+                        >
+                          👁️
+                        </button>
+                        <button
+                          onClick={() => handleEdit(item)}
+                          className="text-cyan-400 hover:text-cyan-300 text-lg"
+                          title="Edit perangkat"
+                        >
+                          ✏️
+                        </button>
+                        <button
+                          onClick={() => handleOpenMutasi(item)}
+                          className="text-green-400 hover:text-green-300 text-lg"
+                          title="Mutasi perangkat"
+                        >
+                          🔄
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1856,12 +2213,26 @@ const StokOpnam = () => {
                       {item.status_perangkat}
                     </span>
                   </div>
-                  <button
-                    onClick={() => handleEdit(item)}
-                    className="w-full mt-3 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700 transition text-sm"
-                  >
-                    ✏️ Edit Perangkat
-                  </button>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={() => handleViewDetail(item)}
+                      className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm"
+                    >
+                      👁️ View
+                    </button>
+                    <button
+                      onClick={() => handleEdit(item)}
+                      className="flex-1 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700 transition text-sm"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      onClick={() => handleOpenMutasi(item)}
+                      className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition text-sm"
+                    >
+                      🔄 Mutasi
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
