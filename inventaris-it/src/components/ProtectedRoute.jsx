@@ -1,10 +1,91 @@
-import { Navigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
-  const { user, profile, loading } = useAuth();
+  const { user, profile, loading, accessiblePages, pagesLoaded, signOut } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [hasAccess, setHasAccess] = useState(null);
+  const [checkingAccess, setCheckingAccess] = useState(true);
 
-  if (loading) {
+  useEffect(() => {
+    // Reset access state when dependencies change to prevent stale state
+    setHasAccess(null);
+    setCheckingAccess(true);
+    checkAccess();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, profile, loading, location.pathname, accessiblePages, pagesLoaded]);
+
+  const checkAccess = async () => {
+    // Always start with checking state
+    setCheckingAccess(true);
+
+    if (loading) {
+      return;
+    }
+
+    if (!user) {
+      setHasAccess(false);
+      setCheckingAccess(false);
+      return;
+    }
+
+    // Wait for profile to load before checking permissions
+    if (!profile) {
+      // Profile still loading, keep checking state
+      return;
+    }
+
+    // Administrator always has access
+    if (profile.role === 'administrator') {
+      setHasAccess(true);
+      setCheckingAccess(false);
+      return;
+    }
+
+    // Standard users: Check category-based page permissions (skip legacy role check)
+    if (profile.role === 'standard') {
+      if (!profile.user_category_id) {
+        // User without category: Show welcome greeting
+        console.log('[ProtectedRoute] Standard user without category - showing greeting');
+        setHasAccess('greeting');
+        setCheckingAccess(false);
+        return;
+      }
+
+      // Wait for pages to load before checking
+      if (!pagesLoaded) {
+        // Still loading accessible pages, keep checking state
+        return;
+      }
+
+      // Use cached accessible pages instead of making a database query
+      const normalizedRoute = location.pathname === '/' ? '/' : location.pathname;
+      const hasPageAccess = accessiblePages.has('*') || accessiblePages.has(normalizedRoute);
+      
+      console.log(`[ProtectedRoute] Using cached permissions: route=${normalizedRoute}, hasAccess=${hasPageAccess}`);
+      setHasAccess(hasPageAccess);
+      setCheckingAccess(false);
+      return;
+    }
+
+    // Legacy role-based check (for backward compatibility - only for non-standard roles)
+    // This handles any old roles that haven't been migrated yet
+    if (allowedRoles.length > 0 && !allowedRoles.includes(profile.role)) {
+      console.log(`[ProtectedRoute] Legacy role check failed: role=${profile.role}, allowedRoles=${allowedRoles.join(',')}`);
+      setHasAccess(false);
+      setCheckingAccess(false);
+      return;
+    }
+
+    // Default: No access (only if profile exists and role doesn't match any case)
+    console.log(`[ProtectedRoute] No access rule matched for role=${profile.role}`);
+    setHasAccess(false);
+    setCheckingAccess(false);
+  };
+
+  if (loading || checkingAccess || (profile?.role === 'standard' && !pagesLoaded)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -19,7 +100,46 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     return <Navigate to="/login" replace />;
   }
 
-  if (allowedRoles.length > 0 && !allowedRoles.includes(profile?.role)) {
+  // Show welcome greeting for users without category
+  if (hasAccess === 'greeting') {
+    const handleLogout = async () => {
+      await signOut();
+      navigate('/login', { replace: true });
+    };
+
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full text-center">
+          <div className="text-blue-500 text-5xl mb-4">👋</div>
+          <h2 className="text-2xl font-bold text-gray-800 mb-2">
+            Selamat Datang!
+          </h2>
+          <p className="text-gray-600 mb-6">
+            Akun Anda belum memiliki kategori pengguna. Silakan hubungi administrator untuk mendapatkan akses.
+          </p>
+          <div className="flex gap-3 justify-center">
+            {location.pathname !== '/' && (
+              <button
+                onClick={() => navigate('/', { replace: true })}
+                className="bg-gray-600 text-white px-6 py-2 rounded-lg hover:bg-gray-700 transition"
+              >
+                Ke Dashboard
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition"
+            >
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Only show access denied if explicitly false (not null/undefined)
+  if (hasAccess === false) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="bg-white p-8 rounded-lg shadow-md max-w-md w-full text-center">
@@ -30,12 +150,23 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
           <p className="text-gray-600 mb-6">
             Anda tidak memiliki izin untuk mengakses halaman ini.
           </p>
-          <button
-            onClick={() => window.history.back()}
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition"
-          >
-            Kembali
-          </button>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={() => navigate('/', { replace: true })}
+              className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition"
+            >
+              Ke Dashboard
+            </button>
+            <button
+              onClick={async () => {
+                await signOut();
+                navigate('/login', { replace: true });
+              }}
+              className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition"
+            >
+              Logout
+            </button>
+          </div>
         </div>
       </div>
     );

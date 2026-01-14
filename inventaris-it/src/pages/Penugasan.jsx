@@ -3,10 +3,17 @@ import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { getPagePermissions } from '../lib/pagePermissions';
 
 const Penugasan = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const toast = useToast();
+  const [permissions, setPermissions] = useState({
+    canView: false,
+    canCreate: false,
+    canEdit: false,
+    canDelete: false
+  });
   const [tasks, setTasks] = useState([]);
   const [heldTasks, setHeldTasks] = useState([]);
   const [availableITSupport, setAvailableITSupport] = useState([]);
@@ -44,6 +51,7 @@ const Penugasan = () => {
   const [perangkatSearch, setPerangkatSearch] = useState('');
 
   useEffect(() => {
+    checkPermissions();
     fetchTasks();
     fetchHeldTasks();
     fetchAvailableITSupport();
@@ -56,7 +64,34 @@ const Penugasan = () => {
         if (interval) clearInterval(interval);
       });
     };
-  }, []);
+  }, [profile]);
+
+  const checkPermissions = async () => {
+    if (profile?.role === 'administrator') {
+      // Administrator has all permissions
+      setPermissions({
+        canView: true,
+        canCreate: true,
+        canEdit: true,
+        canDelete: true
+      });
+    } else if (profile?.user_category_id) {
+      // Check category permissions
+      const perms = await getPagePermissions(
+        profile.user_category_id,
+        '/log-penugasan/penugasan'
+      );
+      setPermissions(perms);
+    } else {
+      // No category = no permissions
+      setPermissions({
+        canView: false,
+        canCreate: false,
+        canEdit: false,
+        canDelete: false
+      });
+    }
+  };
 
   useEffect(() => {
     // Start timers for held tasks
@@ -80,16 +115,23 @@ const Penugasan = () => {
       setLoading(true);
       
       // Fetch tasks with assigned users and devices
-      const { data: tasksData, error: tasksError } = await supabase
+      // Administrators and Helpdesk can see all tasks, other roles see only tasks they created
+      let query = supabase
         .from('task_assignments')
         .select(`
           *,
           skp_category:skp_categories(code, name),
           assigned_by_user:profiles!task_assignments_assigned_by_fkey(full_name)
         `)
-        .eq('assigned_by', user.id)
         .neq('status', 'on_hold')
         .order('created_at', { ascending: false });
+      
+      // Only filter by assigned_by if user is not administrator or helpdesk
+      if (profile?.role !== 'administrator' && profile?.role !== 'helpdesk') {
+        query = query.eq('assigned_by', user.id);
+      }
+      
+      const { data: tasksData, error: tasksError } = await query;
 
       if (tasksError) throw tasksError;
 
@@ -131,10 +173,17 @@ const Penugasan = () => {
 
   const fetchHeldTasks = async () => {
     try {
-      const { data, error } = await supabase
+      // Administrators and Helpdesk can see all held tasks, other roles see only tasks they created
+      let query = supabase
         .from('held_tasks_with_duration')
-        .select('*')
-        .eq('assigned_by', user.id);
+        .select('*');
+      
+      // Only filter by assigned_by if user is not administrator or helpdesk
+      if (profile?.role !== 'administrator' && profile?.role !== 'helpdesk') {
+        query = query.eq('assigned_by', user.id);
+      }
+      
+      const { data, error } = await query;
 
       if (error) throw error;
       setHeldTasks(data || []);
@@ -624,19 +673,23 @@ const Penugasan = () => {
             </p>
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={handleOpenHistory}
-              className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
-              title="Lihat history tugas yang dihapus"
-            >
-              🗑️ History Sampah
-            </button>
-            <button
-              onClick={handleAdd}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
-            >
-              + Buat Tugas Baru
-            </button>
+            {permissions.canDelete && (
+              <button
+                onClick={handleOpenHistory}
+                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
+                title="Lihat history tugas yang dihapus"
+              >
+                🗑️ History Sampah
+              </button>
+            )}
+            {permissions.canCreate && (
+              <button
+                onClick={handleAdd}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
+              >
+                + Buat Tugas Baru
+              </button>
+            )}
           </div>
         </div>
 
@@ -747,7 +800,7 @@ const Penugasan = () => {
 
               {/* Actions */}
               <div className="flex gap-3 justify-end pt-6 border-t mt-6">
-                {selectedTask.status === 'pending' && (
+                {selectedTask.status === 'pending' && permissions.canDelete && (
                   <button
                     onClick={() => {
                       setShowDetailModal(false);
@@ -1497,7 +1550,7 @@ const Penugasan = () => {
                         >
                           👁️
                         </button>
-                        {task.status === 'pending' && (
+                        {task.status === 'pending' && permissions.canDelete && (
                           <button
                             onClick={() => handleDeleteClick(task)}
                             className="text-red-400 hover:text-red-300 text-lg"

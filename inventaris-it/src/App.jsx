@@ -16,6 +16,7 @@ import MasterKategoriUser from './pages/MasterKategoriUser';
 import MasterSKP from './pages/MasterSKP';
 import UserCategoryAssignment from './pages/UserCategoryAssignment';
 import SKPCategoryAssignment from './pages/SKPCategoryAssignment';
+import PagePermissionAssignment from './pages/PagePermissionAssignment';
 import Penugasan from './pages/Penugasan';
 import DaftarTugas from './pages/DaftarTugas';
 import ProgressSKP from './pages/ProgressSKP';
@@ -166,21 +167,31 @@ const AppRoutes = () => {
         }
       />
 
-      {/* Protected Routes - Penugasan (Helpdesk only) */}
+      {/* Protected Routes - Page Permission Assignment (Administrator only) */}
+      <Route
+        path="/page-permission-assignment"
+        element={
+          <ProtectedRoute allowedRoles={['administrator']}>
+            <PagePermissionAssignment />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - Penugasan (Access controlled by page permissions) */}
       <Route
         path="/log-penugasan/penugasan"
         element={
-          <ProtectedRoute allowedRoles={['administrator', 'it_support', 'helpdesk', 'user']}>
+          <ProtectedRoute>
             <Penugasan />
           </ProtectedRoute>
         }
       />
 
-      {/* Protected Routes - Daftar Tugas (IT Support only) */}
+      {/* Protected Routes - Daftar Tugas (Access controlled by page permissions) */}
       <Route
         path="/log-penugasan/daftar-tugas"
         element={
-          <ProtectedRoute allowedRoles={['administrator', 'it_support', 'helpdesk', 'user']}>
+          <ProtectedRoute>
             <DaftarTugas />
           </ProtectedRoute>
         }

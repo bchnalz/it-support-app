@@ -76,8 +76,11 @@ const StokOpnam = () => {
   });
 
   useEffect(() => {
-    fetchPerangkat();
+    // Fetch master data first (small, fast)
     fetchMasterData();
+    
+    // Fetch perangkat data (can be slow, but non-blocking)
+    fetchPerangkat();
   }, []);
 
   const fetchMasterData = async () => {
@@ -126,22 +129,54 @@ const StokOpnam = () => {
   const fetchPerangkat = async () => {
     try {
       setLoading(true);
-      const { data, error} = await supabase
+      console.log('[StokOpnam] Starting fetchPerangkat...');
+      const startTime = performance.now();
+      
+      // Use single optimized query - Supabase handles joins efficiently
+      // This is faster than multiple queries because:
+      // 1. Single round-trip to database
+      // 2. Database optimizes the join internally
+      // 3. Less RLS policy checks (one query vs many)
+      const { data, error } = await supabase
         .from('perangkat')
         .select(`
-          *,
+          id,
+          id_perangkat,
+          nama_perangkat,
+          jenis_perangkat_kode,
+          jenis_barang_id,
+          lokasi_kode,
+          serial_number,
+          merk,
+          id_remoteaccess,
+          spesifikasi_processor,
+          kapasitas_ram,
+          mac_ethernet,
+          mac_wireless,
+          ip_ethernet,
+          ip_wireless,
+          serial_number_monitor,
+          tanggal_entry,
+          status_perangkat,
+          petugas_id,
           jenis_perangkat:ms_jenis_perangkat!perangkat_jenis_perangkat_kode_fkey(kode, nama),
-          jenis_barang:ms_jenis_barang!perangkat_jenis_barang_id_fkey(nama),
+          jenis_barang:ms_jenis_barang!perangkat_jenis_barang_id_fkey(id, nama),
           lokasi:ms_lokasi!perangkat_lokasi_kode_fkey(kode, nama),
-          petugas:profiles!perangkat_petugas_id_fkey(full_name),
+          petugas:profiles!perangkat_petugas_id_fkey(id, full_name),
           perangkat_storage(id, jenis_storage, kapasitas)
         `)
-        .order('tanggal_entry', { ascending: false });
+        .order('tanggal_entry', { ascending: false })
+        .limit(1000); // Reasonable limit to prevent slow queries
 
       if (error) throw error;
-      setPerangkat(data);
+
+      const endTime = performance.now();
+      console.log(`[StokOpnam] ✅ fetchPerangkat completed in ${(endTime - startTime).toFixed(2)}ms, ${data?.length || 0} records`);
+      
+      setPerangkat(data || []);
     } catch (error) {
-      console.error('Error fetching perangkat:', error.message);
+      console.error('[StokOpnam] Error fetching perangkat:', error.message);
+      toast.error('❌ Gagal memuat data perangkat: ' + error.message);
     } finally {
       setLoading(false);
     }

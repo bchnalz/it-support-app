@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
 const Layout = ({ children }) => {
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, accessiblePages, pagesLoaded } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -14,7 +14,14 @@ const Layout = ({ children }) => {
   const [userCategory, setUserCategory] = useState(null);
 
   useEffect(() => {
+    // Only run if profile is loaded and has an ID
     if (profile?.id) {
+      console.log('[Layout] Profile loaded, fetching data:', { 
+        id: profile.id, 
+        role: profile.role, 
+        user_category_id: profile.user_category_id 
+      });
+      
       fetchUnreadNotifications();
       fetchUserCategory();
       
@@ -33,8 +40,15 @@ const Layout = ({ children }) => {
       return () => {
         subscription.unsubscribe();
       };
+    } else {
+      // Reset when profile is not available
+      setAccessiblePages(new Set());
+      setPagesLoaded(false);
+      setUserCategory(null);
+      setUnreadCount(0);
     }
-  }, [profile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id, profile?.role, profile?.user_category_id]);
 
   const fetchUserCategory = async () => {
     if (!profile?.id) return;
@@ -140,6 +154,7 @@ const Layout = ({ children }) => {
     { path: '/master-skp', label: 'Master SKP', roles: ['administrator'] },
     { path: '/user-category-assignment', label: 'Assign Kategori User', roles: ['administrator'] },
     { path: '/skp-category-assignment', label: 'Assign SKP ke Kategori', roles: ['administrator'] },
+    { path: '/page-permission-assignment', label: 'Assign Page Access', roles: ['administrator'] },
   ];
 
   const logPenugasanItems = [
@@ -147,14 +162,83 @@ const Layout = ({ children }) => {
     { path: '/log-penugasan/daftar-tugas', label: 'Daftar Tugas', showFor: 'IT Support', roles: ['administrator', 'it_support', 'helpdesk', 'user'] },
   ];
 
-  const allowedMenuItems = menuItems.filter((item) => item.roles.includes(profile?.role));
-  const allowedMasterItems = masterMenuItems.filter((item) => item.roles.includes(profile?.role));
-  const allowedLogPenugasanItems = logPenugasanItems.filter((item) => {
-    if (!item.roles.includes(profile?.role)) return false;
-    // Show all for admin
+  // Check if user has access to a page
+  const hasPageAccess = (pagePath) => {
+    // Administrator has access to all
     if (profile?.role === 'administrator') return true;
-    // Show based on user category for others
-    return !item.showFor || userCategory === item.showFor;
+    
+    // Standard users: Check category-based permissions
+    if (profile?.role === 'standard') {
+      const hasAccess = accessiblePages.has('*') || accessiblePages.has(pagePath);
+      if (!hasAccess) {
+        console.log(`[Layout] No access to page "${pagePath}". Accessible pages:`, Array.from(accessiblePages));
+      }
+      return hasAccess;
+    }
+    
+    // Legacy role check (for backward compatibility with non-standard roles)
+    return false;
+  };
+
+  // Filter menu items based on role or page permissions
+  // For standard users, wait for pages to load to avoid showing wrong items
+  const allowedMenuItems = menuItems.filter((item) => {
+    // Administrator sees all
+    if (profile?.role === 'administrator') return true;
+    
+    // Standard users: Check category-based page permissions
+    if (profile?.role === 'standard') {
+      // Don't show menu items until pages are loaded (prevents glitch)
+      if (!pagesLoaded) {
+        return false; // Show nothing while loading
+      }
+      const hasAccess = hasPageAccess(item.path);
+      return hasAccess;
+    }
+    
+    // Legacy role check (for backward compatibility)
+    if (item.roles && item.roles.length > 0) {
+      return item.roles.includes(profile?.role);
+    }
+    return false;
+  });
+
+  const allowedMasterItems = masterMenuItems.filter((item) => {
+    // Administrator sees all
+    if (profile?.role === 'administrator') return true;
+    
+    // Standard users: Check category-based page permissions (only after pages are loaded)
+    if (profile?.role === 'standard') {
+      if (!pagesLoaded) return false; // Don't show until loaded
+      return hasPageAccess(item.path);
+    }
+    
+    // Legacy role check
+    if (item.roles && item.roles.length > 0) {
+      return item.roles.includes(profile?.role);
+    }
+    return false;
+  });
+
+  const allowedLogPenugasanItems = logPenugasanItems.filter((item) => {
+    // Administrator sees all
+    if (profile?.role === 'administrator') return true;
+    
+    // Standard users: Check category-based page permissions (only after pages are loaded)
+    if (profile?.role === 'standard') {
+      if (!pagesLoaded) return false; // Don't show until loaded
+      return hasPageAccess(item.path);
+    }
+    
+    // Legacy role check
+    if (item.roles && item.roles.length > 0 && !item.roles.includes(profile?.role)) {
+      return false;
+    }
+    // Show based on user category for others (legacy)
+    if (item.showFor && userCategory !== item.showFor) {
+      return false;
+    }
+    return true;
   });
 
   return (
@@ -210,6 +294,17 @@ const Layout = ({ children }) => {
 
         {/* Navigation - Middle (flex-1 to push logout to bottom) */}
         <nav className="flex-1 p-4 space-y-1">
+          {profile?.role === 'standard' && !pagesLoaded && (
+            <div className="text-center py-8 text-gray-400 text-sm">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-500 mx-auto mb-3"></div>
+              <p>Memuat menu...</p>
+            </div>
+          )}
+          {allowedMenuItems.length === 0 && profile?.role === 'standard' && pagesLoaded && (
+            <div className="text-center py-8 text-gray-400 text-sm">
+              <p>Tidak ada halaman yang dapat diakses</p>
+            </div>
+          )}
           {allowedMenuItems.map((item) => (
             <Link
               key={item.path}

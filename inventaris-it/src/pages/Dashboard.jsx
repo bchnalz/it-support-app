@@ -18,19 +18,13 @@ const Dashboard = () => {
 
   // Task assignment tracking states
   const [notifications, setNotifications] = useState([]);
-  const [myTasks, setMyTasks] = useState([]);
-  const [heldTasks, setHeldTasks] = useState([]);
   const [userCategory, setUserCategory] = useState(null);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [avgWaitTime, setAvgWaitTime] = useState(0);
 
   useEffect(() => {
     fetchDashboardData();
     fetchUserCategory();
     fetchNotifications();
-    fetchMyTasks();
-    fetchHeldTasks();
-    fetchAvgWaitTime();
     
     // Setup realtime subscription for notifications
     const notificationSubscription = supabase
@@ -84,46 +78,6 @@ const Dashboard = () => {
     }
   };
 
-  const fetchMyTasks = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('task_assignments')
-        .select('*')
-        .or(`assigned_to.eq.${user?.id},assigned_by.eq.${user?.id}`)
-        .neq('status', 'on_hold');
-      
-      if (error) throw error;
-      setMyTasks(data || []);
-    } catch (error) {
-      console.error('Error fetching tasks:', error);
-    }
-  };
-
-  const fetchHeldTasks = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('task_assignments')
-        .select('*')
-        .eq('status', 'on_hold');
-      
-      if (error) throw error;
-      setHeldTasks(data || []);
-    } catch (error) {
-      console.error('Error fetching held tasks:', error);
-    }
-  };
-
-  const fetchAvgWaitTime = async () => {
-    try {
-      const { data, error } = await supabase
-        .rpc('get_average_waiting_time');
-      
-      if (error) throw error;
-      setAvgWaitTime(data || 0);
-    } catch (error) {
-      console.error('Error fetching avg wait time:', error);
-    }
-  };
 
   const markNotificationAsRead = async (notificationId) => {
     try {
@@ -376,98 +330,6 @@ const Dashboard = () => {
             )}
           </div>
         </div>
-
-        {/* Task Statistics (for Helpdesk & IT Support) */}
-        {userCategory && (userCategory === 'Helpdesk' || userCategory === 'IT Support') && (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="bg-gradient-to-br from-orange-400 to-orange-600 rounded-xl shadow-md p-6 text-white">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm opacity-90">Held Tasks</p>
-                    <p className="text-3xl font-bold mt-1">{heldTasks.length}</p>
-                    {heldTasks.length > 0 && (
-                      <p className="text-xs mt-1 opacity-90">⚠️ Menunggu assign</p>
-                    )}
-                  </div>
-                  <div className="text-4xl opacity-80">⏳</div>
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-yellow-400 to-yellow-600 rounded-xl shadow-md p-6 text-white">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm opacity-90">Tugas Baru</p>
-                    <p className="text-3xl font-bold mt-1">
-                      {myTasks.filter(t => t.status === 'pending' && (userCategory === 'IT Support' ? t.assigned_to === user?.id : t.assigned_by === user?.id)).length}
-                    </p>
-                  </div>
-                  <div className="text-4xl opacity-80">🔔</div>
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-purple-400 to-purple-600 rounded-xl shadow-md p-6 text-white">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm opacity-90">Dikerjakan</p>
-                    <p className="text-3xl font-bold mt-1">
-                      {myTasks.filter(t => ['in_progress', 'paused'].includes(t.status) && (userCategory === 'IT Support' ? t.assigned_to === user?.id : t.assigned_by === user?.id)).length}
-                    </p>
-                  </div>
-                  <div className="text-4xl opacity-80">⏱️</div>
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-green-400 to-green-600 rounded-xl shadow-md p-6 text-white">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm opacity-90">Selesai</p>
-                    <p className="text-3xl font-bold mt-1">
-                      {myTasks.filter(t => t.status === 'completed' && (userCategory === 'IT Support' ? t.assigned_to === user?.id : t.assigned_by === user?.id)).length}
-                    </p>
-                  </div>
-                  <div className="text-4xl opacity-80">✅</div>
-                </div>
-              </div>
-
-              <div className="bg-gradient-to-br from-blue-400 to-blue-600 rounded-xl shadow-md p-6 text-white">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm opacity-90">Avg Wait</p>
-                    <p className="text-2xl font-bold mt-1">
-                      {avgWaitTime > 0 ? `${Math.round(avgWaitTime)} min` : '-'}
-                    </p>
-                  </div>
-                  <div className="text-4xl opacity-80">📊</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Held Tasks Alert */}
-            {heldTasks.length > 0 && userCategory === 'Helpdesk' && (
-              <div className="bg-orange-50 border-2 border-orange-300 rounded-xl p-4">
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl">⚠️</span>
-                  <div className="flex-1">
-                    <h3 className="font-bold text-orange-900 mb-1">
-                      {heldTasks.length} Tugas Menunggu Assignment
-                    </h3>
-                    <p className="text-sm text-orange-800 mb-2">
-                      Ada tugas yang di-hold karena tidak ada IT Support available. 
-                      Segera assign ketika ada petugas yang tersedia.
-                    </p>
-                    <a 
-                      href="/log-penugasan/penugasan" 
-                      className="inline-block text-sm font-semibold text-orange-700 hover:text-orange-900 underline"
-                    >
-                      Lihat Held Tasks →
-                    </a>
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-        )}
 
         {/* Jumlah Perangkat per Jenis Perangkat */}
         <div className="bg-gray-800 rounded-xl shadow-md p-6 border border-gray-700">
