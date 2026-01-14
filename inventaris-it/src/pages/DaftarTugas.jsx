@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { MagnifyingGlassPlusIcon } from '@heroicons/react/24/outline';
 
 const DaftarTugas = () => {
   const { user } = useAuth();
@@ -414,7 +415,7 @@ const DaftarTugas = () => {
               <div className="space-y-4">
                 <div>
                   <p className="text-sm text-gray-600">No. Tugas</p>
-                  <p className="text-lg font-mono font-bold text-blue-600">{selectedTask.task_number}</p>
+                  <p className="text-lg font-mono font-bold text-orange-500">{selectedTask.task_number}</p>
                 </div>
 
                 <div>
@@ -630,7 +631,7 @@ const DaftarTugas = () => {
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    <span className="text-sm font-mono font-bold text-blue-400">
+                    <span className="text-sm font-mono font-bold text-orange-400">
                       {task.task_number}
                     </span>
                     {getPriorityBadge(task.priority)}
@@ -667,7 +668,10 @@ const DaftarTugas = () => {
                     onClick={() => handleViewDetail(task)}
                     className="px-4 py-2 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 transition text-sm"
                   >
-                    👁️ Detail
+                    <span className="inline-flex items-center gap-2">
+                      <MagnifyingGlassPlusIcon className="w-4 h-4" />
+                      Detail
+                    </span>
                   </button>
 
                   {task.user_status === 'pending' && (

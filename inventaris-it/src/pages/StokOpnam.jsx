@@ -15,7 +15,8 @@ const StokOpnam = () => {
   const [jenisPerangkatList, setJenisPerangkatList] = useState([]);
   const [jenisBarangList, setJenisBarangList] = useState([]);
   const [lokasiList, setLokasiList] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Don't block initial render; load data after first paint
+  const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
@@ -76,11 +77,27 @@ const StokOpnam = () => {
   });
 
   useEffect(() => {
-    // Fetch master data first (small, fast)
-    fetchMasterData();
-    
-    // Fetch perangkat data (can be slow, but non-blocking)
-    fetchPerangkat();
+    // Defer network queries until after first paint so search/button render instantly.
+    // This improves perceived speed without changing the underlying query performance.
+    const runAfterPaint = (fn) => {
+      if (typeof window === 'undefined') {
+        fn();
+        return () => {};
+      }
+      if ('requestIdleCallback' in window) {
+        const id = window.requestIdleCallback(fn, { timeout: 1000 });
+        return () => window.cancelIdleCallback?.(id);
+      }
+      const id = window.setTimeout(fn, 0);
+      return () => window.clearTimeout(id);
+    };
+
+    const cancel = runAfterPaint(() => {
+      fetchMasterData();
+      fetchPerangkat();
+    });
+
+    return cancel;
   }, []);
 
   const fetchMasterData = async () => {
@@ -705,16 +722,6 @@ const StokOpnam = () => {
       </span>
     );
   };
-
-  if (loading) {
-    return (
-      <Layout>
-        <div className="flex items-center justify-center h-64">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
-        </div>
-      </Layout>
-    );
-  }
 
   return (
     <Layout>
@@ -2076,6 +2083,15 @@ const StokOpnam = () => {
 
         {/* Table - Desktop View */}
         <div className="bg-gray-800 rounded-xl shadow-md overflow-hidden border border-gray-700">
+          {loading ? (
+            <div className="flex items-center justify-center h-40">
+              <div className="flex items-center gap-3 text-gray-300">
+                <div className="animate-spin rounded-full h-6 w-6 border-2 border-gray-500 border-t-cyan-400"></div>
+                <span className="text-sm">Loading data perangkat...</span>
+              </div>
+            </div>
+          ) : (
+            <>
           <div className="hidden lg:block overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-700">
               <thead className="bg-gray-900">
@@ -2273,6 +2289,8 @@ const StokOpnam = () => {
               </div>
             ))}
           </div>
+            </>
+          )}
 
           {/* Pagination Controls */}
           {filteredPerangkat.length > 0 && !isShowingAll && totalPages > 1 && (
@@ -2349,7 +2367,7 @@ const StokOpnam = () => {
             </div>
           )}
 
-          {filteredPerangkat.length === 0 && (
+          {!loading && filteredPerangkat.length === 0 && (
             <div className="text-center py-12 text-gray-400">
               <p className="text-lg">Tidak ada data ditemukan</p>
             </div>

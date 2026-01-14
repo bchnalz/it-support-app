@@ -378,7 +378,7 @@ const MasterSKP = () => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {skpCategories.map((item) => (
-                <tr key={item.id} className="group hover:bg-gray-50 transition-colors">
+                <tr key={item.id} className="group hover:bg-gray-700 transition-colors">
                   <td className="px-6 py-4">
                     <div>
                       <p className="text-sm font-semibold text-gray-900">{item.name}</p>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { MagnifyingGlassPlusIcon } from '@heroicons/react/24/outline';
 import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
 import { useAuth } from '../contexts/AuthContext';
@@ -166,14 +167,21 @@ const Penugasan = () => {
       // Fetch assigned users for each task
       const tasksWithUsers = await Promise.all(
         tasksData.map(async (task) => {
-          const { data: usersData } = await supabase
+          // Fetch assigned users + their profile (name/email) via relationship
+          const { data: assignedUsersData, error: usersError } = await supabase
             .from('task_assignment_users')
             .select(`
               user_id,
               status,
-              profiles!task_assignment_users_user_id_fkey(full_name, email)
+              work_duration_minutes,
+              acknowledged_at,
+              started_at,
+              completed_at,
+              profiles(full_name, email)
             `)
             .eq('task_assignment_id', task.id);
+
+          if (usersError) throw usersError;
           
           const { data: devicesData } = await supabase
             .from('task_assignment_perangkat')
@@ -185,7 +193,7 @@ const Penugasan = () => {
 
           return {
             ...task,
-            assigned_users: usersData || [],
+            assigned_users: assignedUsersData || [],
             assigned_devices: devicesData || [],
           };
         })
@@ -752,7 +760,7 @@ const Penugasan = () => {
                 {/* Task Number */}
                 <div>
                   <p className="text-sm text-gray-600">Nomor Tugas</p>
-                  <p className="text-xl font-mono font-bold text-blue-600">{selectedTask.task_number}</p>
+                  <p className="text-xl font-mono font-bold text-orange-500">{selectedTask.task_number}</p>
                 </div>
 
                 {/* Title & Description */}
@@ -789,18 +797,30 @@ const Penugasan = () => {
                 {/* Assigned Users */}
                 {selectedTask.assigned_users && selectedTask.assigned_users.length > 0 && (
                   <div>
-                    <p className="text-sm text-gray-600 mb-2">IT Support Ditugaskan ({selectedTask.assigned_users.length})</p>
+                    <p className="text-sm text-gray-600 mb-2">Petugas IT Support Ditugaskan ({selectedTask.assigned_users.length})</p>
                     <div className="space-y-2">
-                      {selectedTask.assigned_users.map((au, idx) => (
-                        <div key={idx} className="flex items-center gap-2 bg-blue-50 p-2 rounded">
-                          <span className="text-2xl">👤</span>
-                          <div className="flex-1">
-                            <p className="text-sm font-semibold text-gray-900">{au.profiles?.full_name}</p>
-                            <p className="text-xs text-gray-600">{au.profiles?.email}</p>
+                      {selectedTask.assigned_users.map((au, idx) => {
+                        // Handle different possible data structures from Supabase
+                        const userName = au.profiles?.full_name || 
+                                       (au.profiles && typeof au.profiles === 'object' && au.profiles.full_name) ||
+                                       'Unknown';
+                        const userEmail = au.profiles?.email || 
+                                        (au.profiles && typeof au.profiles === 'object' && au.profiles.email) ||
+                                        '';
+                        return (
+                          <div
+                            key={idx}
+                            className="flex items-center gap-3 bg-slate-800 border border-slate-700 p-3 rounded-lg"
+                          >
+                            <span className="text-xl">👤</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-100 truncate">{userName}</p>
+                              {userEmail && <p className="text-xs text-slate-300 truncate">{userEmail}</p>}
+                            </div>
+                            {getStatusBadge(au.status)}
                           </div>
-                          {getStatusBadge(au.status)}
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -1093,8 +1113,8 @@ const Penugasan = () => {
 
         {/* Form Modal */}
         {showAddForm && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-            <div className="bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full p-6 my-8 relative">
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full p-6 my-8 relative max-h-[90vh] overflow-y-auto">
               <h2 className="text-2xl font-bold text-white mb-4">
                 ➕ Buat Penugasan Baru
               </h2>
@@ -1545,13 +1565,10 @@ const Penugasan = () => {
                     No. Tugas
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Aksi
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Judul & SKP
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    IT Support
+                    Petugas IT Support
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Prioritas
@@ -1565,6 +1582,9 @@ const Penugasan = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Durasi
                   </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Aksi
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-gray-800 divide-y divide-gray-700">
@@ -1573,31 +1593,11 @@ const Penugasan = () => {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
                         onClick={() => handleViewDetail(task)}
-                        className="text-sm font-mono font-bold text-blue-400 hover:text-blue-300 hover:underline cursor-pointer"
+                        className="text-sm font-mono font-bold text-orange-400 hover:text-orange-300 hover:underline cursor-pointer"
                         title="Klik untuk lihat detail"
                       >
                         {task.task_number}
                       </button>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleViewDetail(task)}
-                          className="text-blue-400 hover:text-blue-300 text-lg"
-                          title="Lihat detail"
-                        >
-                          👁️
-                        </button>
-                        {task.status === 'pending' && permissions.canDelete && (
-                          <button
-                            onClick={() => handleDeleteClick(task)}
-                            className="text-red-400 hover:text-red-300 text-lg"
-                            title="Hapus tugas"
-                          >
-                            🗑️
-                          </button>
-                        )}
-                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <div>
@@ -1610,23 +1610,18 @@ const Penugasan = () => {
                     <td className="px-6 py-4">
                       {task.assigned_users && task.assigned_users.length > 0 ? (
                         <div className="space-y-1">
-                          {task.assigned_users.map((au, idx) => (
-                            <div key={idx}>
-                              <p className="text-sm font-medium text-white">
-                                {au.profiles?.full_name}
+                          {task.assigned_users.map((au, idx) => {
+                            // Handle different possible data structures from Supabase
+                            // Supabase returns nested data as: { user_id, status, profiles: { full_name, email } }
+                            const userName = au.profiles?.full_name || 
+                                           (au.profiles && typeof au.profiles === 'object' && au.profiles.full_name) ||
+                                           'Unknown';
+                            return (
+                              <p key={idx} className="text-sm font-medium text-white">
+                                {userName}
                               </p>
-                              {idx === 0 && (
-                                <p className="text-xs text-gray-400">
-                                  {au.profiles?.email}
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                          {task.assigned_users.length > 1 && (
-                            <p className="text-xs text-blue-400 font-semibold">
-                              +{task.assigned_users.length - 1} petugas lain
-                            </p>
-                          )}
+                            );
+                          })}
                         </div>
                       ) : (
                         <span className="text-sm text-gray-400">-</span>
@@ -1649,6 +1644,26 @@ const Penugasan = () => {
                       ) : (
                         '-'
                       )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <div className="flex gap-2 justify-end">
+                        <button
+                          onClick={() => handleViewDetail(task)}
+                          className="text-blue-400 hover:text-blue-300 text-lg"
+                          title="Lihat detail"
+                        >
+                          <MagnifyingGlassPlusIcon className="w-5 h-5" />
+                        </button>
+                        {task.status === 'pending' && permissions.canDelete && (
+                          <button
+                            onClick={() => handleDeleteClick(task)}
+                            className="text-red-400 hover:text-red-300 text-lg"
+                            title="Hapus tugas"
+                          >
+                            🗑️
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
