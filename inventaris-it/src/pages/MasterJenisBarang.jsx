@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import Layout from '../components/Layout';
 import { useToast } from '../contexts/ToastContext';
@@ -24,19 +24,58 @@ const MasterJenisBarang = () => {
   const fetchJenisBarang = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      
+      // First, try to fetch jenis barang with join
+      let query = supabase
         .from('ms_jenis_barang')
-        .select(`
-          *,
-          jenis_perangkat:ms_jenis_perangkat!ms_jenis_barang_jenis_perangkat_kode_fkey(kode, nama)
-        `)
+        .select('*')
         .order('jenis_perangkat_kode', { ascending: true, nullsFirst: false })
         .order('nama');
 
-      if (error) throw error;
-      setJenisBarang(data);
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error fetching jenis barang:', error);
+        toast.error('❌ Gagal memuat data: ' + error.message);
+        setJenisBarang([]);
+        return;
+      }
+
+      // If we have data, fetch jenis_perangkat and join manually
+      if (data && data.length > 0) {
+        const jenisPerangkatKodes = [...new Set(data.map(item => item.jenis_perangkat_kode).filter(Boolean))];
+        
+        if (jenisPerangkatKodes.length > 0) {
+          const { data: jenisPerangkatData } = await supabase
+            .from('ms_jenis_perangkat')
+            .select('kode, nama')
+            .in('kode', jenisPerangkatKodes);
+
+          // Create a map for quick lookup
+          const jenisPerangkatMap = {};
+          if (jenisPerangkatData) {
+            jenisPerangkatData.forEach(jp => {
+              jenisPerangkatMap[jp.kode] = { kode: jp.kode, nama: jp.nama };
+            });
+          }
+
+          // Attach jenis_perangkat to each item
+          const dataWithJoin = data.map(item => ({
+            ...item,
+            jenis_perangkat: item.jenis_perangkat_kode ? jenisPerangkatMap[item.jenis_perangkat_kode] : null
+          }));
+
+          setJenisBarang(dataWithJoin);
+        } else {
+          setJenisBarang(data);
+        }
+      } else {
+        setJenisBarang(data || []);
+      }
     } catch (error) {
-      console.error('Error fetching jenis barang:', error.message);
+      console.error('Error fetching jenis barang:', error);
+      toast.error('❌ Gagal memuat data: ' + error.message);
+      setJenisBarang([]);
     } finally {
       setLoading(false);
     }
@@ -61,6 +100,7 @@ const MasterJenisBarang = () => {
     setEditingId(null);
     setForm({ nama: '', jenis_perangkat_kode: '', is_active: true });
     setShowAddForm(true);
+    fetchJenisPerangkat();
   };
 
   const handleEdit = (item) => {
@@ -71,15 +111,21 @@ const MasterJenisBarang = () => {
       is_active: item.is_active 
     });
     setShowAddForm(true);
+    fetchJenisPerangkat();
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const submitData = {
+        ...form,
+        jenis_perangkat_kode: form.jenis_perangkat_kode || null,
+      };
+
       if (editingId) {
         const { error } = await supabase
           .from('ms_jenis_barang')
-          .update(form)
+          .update(submitData)
           .eq('id', editingId);
 
         if (error) throw error;
@@ -87,7 +133,7 @@ const MasterJenisBarang = () => {
       } else {
         const { error } = await supabase
           .from('ms_jenis_barang')
-          .insert([form]);
+          .insert([submitData]);
 
         if (error) throw error;
         toast.success('✅ Data berhasil ditambahkan!');
@@ -119,6 +165,47 @@ const MasterJenisBarang = () => {
     }
   };
 
+  // Group jenis barang by jenis_perangkat_kode
+  const groupedData = () => {
+    const groups = {};
+    const ungrouped = [];
+
+    jenisBarang.forEach((item) => {
+      const key = item.jenis_perangkat_kode || 'ungrouped';
+      if (key === 'ungrouped') {
+        ungrouped.push(item);
+      } else {
+        if (!groups[key]) {
+          groups[key] = {
+            jenis_perangkat: item.jenis_perangkat,
+            items: []
+          };
+        }
+        groups[key].items.push(item);
+      }
+    });
+
+    // Convert to array and sort by jenis_perangkat_kode
+    const result = Object.keys(groups)
+      .sort()
+      .map(kode => ({
+        kode,
+        jenis_perangkat: groups[kode].jenis_perangkat,
+        items: groups[kode].items.sort((a, b) => a.nama.localeCompare(b.nama))
+      }));
+
+    // Add ungrouped at the end if any
+    if (ungrouped.length > 0) {
+      result.push({
+        kode: null,
+        jenis_perangkat: null,
+        items: ungrouped.sort((a, b) => a.nama.localeCompare(b.nama))
+      });
+    }
+
+    return result;
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -128,6 +215,8 @@ const MasterJenisBarang = () => {
       </Layout>
     );
   }
+
+  const grouped = groupedData();
 
   return (
     <Layout>
@@ -248,75 +337,75 @@ const MasterJenisBarang = () => {
         </div>
 
         {/* Table */}
-        <div className="bg-white rounded-xl shadow-md overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Jenis Perangkat
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Nama Jenis Barang
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Aksi
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {jenisBarang.map((item) => (
-                <tr key={item.id} className="group hover:bg-[#171717] transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 group-hover:text-white">
-                    {item.jenis_perangkat ? (
-                      <span>
-                        <span className="font-mono font-semibold">{item.jenis_perangkat.kode}</span>
-                        {' - '}
-                        <span className="text-gray-600 group-hover:text-gray-300">{item.jenis_perangkat.nama}</span>
-                      </span>
-                    ) : (
-                      <span className="text-gray-400 italic">Tidak terhubung</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 group-hover:text-white">
-                    {item.nama}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                        item.is_active
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}
-                    >
-                      {item.is_active ? 'Aktif' : 'Nonaktif'}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-3">
-                    <button
-                      onClick={() => handleEdit(item)}
-                      className="text-blue-600 hover:text-blue-900"
-                    >
-                      ✏️ Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(item.id, item.nama)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      🗑️ Hapus
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {jenisBarang.length === 0 && (
+        <div className="bg-white rounded-xl shadow-md overflow-hidden inline-block w-auto">
+          {jenisBarang.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <p className="text-lg">Belum ada data master jenis barang</p>
             </div>
+          ) : (
+            <table className="w-auto divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Jenis Perangkat / Nama Jenis Barang
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Aksi
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {grouped.map((group) => (
+                  <React.Fragment key={`group-${group.kode || 'ungrouped'}`}>
+                    {/* Parent row - Jenis Perangkat */}
+                    <tr>
+                      <td colSpan="2" className="px-6 py-3">
+                        <div className="flex items-center">
+                          <span className="text-lg font-mono font-bold text-gray-900">
+                            {group.jenis_perangkat ? group.jenis_perangkat.kode : '❓'}
+                          </span>
+                          <span className="ml-3 text-base font-semibold text-gray-900">
+                            {group.jenis_perangkat ? group.jenis_perangkat.nama : 'Tidak Terhubung'}
+                          </span>
+                          <span className="ml-2 text-xs text-gray-500">
+                            ({group.items.length} {group.items.length === 1 ? 'item' : 'items'})
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                    {/* Child rows - Jenis Barang */}
+                    {group.items.map((item) => (
+                      <tr key={item.id}>
+                        <td className="px-6 py-3 whitespace-nowrap">
+                          <div className="flex items-center pl-8">
+                            <span className="text-gray-400 mr-2">└─</span>
+                            <span className="text-sm font-medium text-gray-900">
+                              {item.nama}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-3 whitespace-nowrap text-sm font-medium space-x-3">
+                          <button
+                            onClick={() => handleEdit(item)}
+                            className="text-blue-600 hover:text-blue-700"
+                            title="Edit"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => handleDelete(item.id, item.nama)}
+                            className="text-red-600 hover:text-red-700"
+                            title="Hapus"
+                          >
+                            🗑️
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
           )}
         </div>
       </div>

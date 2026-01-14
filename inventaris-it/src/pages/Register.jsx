@@ -1,25 +1,21 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
+import { useToast } from '../contexts/ToastContext';
 
 const Register = () => {
   const navigate = useNavigate();
+  const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     email: '',
     full_name: '',
     phone: '',
     department: '',
-    requested_role: 'user',
+    password: '',
+    confirmPassword: '',
     reason: '',
   });
-
-  const roles = [
-    { value: 'user', label: 'User (Regular Access)', description: 'Basic access to view data' },
-    { value: 'helpdesk', label: 'Helpdesk', description: 'Log task assignments' },
-    { value: 'it_support', label: 'IT Support', description: 'Manage inventory and stock' },
-    { value: 'administrator', label: 'Administrator', description: 'Full system access' },
-  ];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -32,12 +28,26 @@ const Register = () => {
         throw new Error('Invalid email format');
       }
 
+      // Validate password
+      if (!formData.password || formData.password.length < 8) {
+        throw new Error('Password must be at least 8 characters long');
+      }
+
+      if (formData.password !== formData.confirmPassword) {
+        throw new Error('Passwords do not match');
+      }
+
       // Check if email already exists in user_requests
-      const { data: existingRequest } = await supabase
+      const { data: existingRequest, error: checkError } = await supabase
         .from('user_requests')
         .select('id, status')
         .eq('email', formData.email)
-        .single();
+        .maybeSingle(); // Use maybeSingle() instead of single() to avoid error if not found
+
+      if (checkError && checkError.code !== 'PGRST116') {
+        // PGRST116 = no rows returned, which is fine
+        console.error('Error checking existing request:', checkError);
+      }
 
       if (existingRequest) {
         if (existingRequest.status === 'pending') {
@@ -48,18 +58,23 @@ const Register = () => {
       }
 
       // Check if email already exists in profiles (already has account)
-      const { data: existingProfile } = await supabase
+      const { data: existingProfile, error: profileCheckError } = await supabase
         .from('profiles')
         .select('id')
         .eq('email', formData.email)
-        .single();
+        .maybeSingle(); // Use maybeSingle() instead of single() to avoid error if not found
+
+      if (profileCheckError && profileCheckError.code !== 'PGRST116') {
+        // PGRST116 = no rows returned, which is fine
+        console.error('Error checking existing profile:', profileCheckError);
+      }
 
       if (existingProfile) {
         throw new Error('An account with this email already exists');
       }
 
       // Insert user request
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('user_requests')
         .insert([
           {
@@ -67,20 +82,47 @@ const Register = () => {
             full_name: formData.full_name,
             phone: formData.phone || null,
             department: formData.department || null,
-            requested_role: formData.requested_role,
+            requested_role: 'standard', // All users are standard (admin is assigned manually)
+            password: formData.password, // Store password for account creation
             reason: formData.reason || null,
             status: 'pending',
           },
-        ]);
+        ])
+        .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Database error:', error);
+        // Provide more helpful error messages
+        if (error.code === '23514') {
+          throw new Error('Invalid role. Please contact administrator.');
+        } else if (error.code === '23505') {
+          throw new Error('Email already exists in requests.');
+        } else if (error.message.includes('password')) {
+          throw new Error('Password column not found. Please run the database migration: add_password_to_user_requests.sql');
+        } else if (error.message.includes('requested_role')) {
+          throw new Error('Role constraint error. Please run: FIX_USER_REQUESTS_CONSTRAINT.sql');
+        }
+        throw error;
+      }
 
       toast.success('✅ Request submitted! Menunggu persetujuan administrator.');
       
       navigate('/login');
     } catch (error) {
       console.error('Error submitting request:', error);
-      toast.error('❌ ❌ Error: ' + error.message);
+      console.error('Full error object:', error);
+      
+      // Show detailed error message
+      let errorMessage = error.message || 'Unknown error occurred';
+      
+      // Add troubleshooting hints
+      if (error.message.includes('constraint') || error.message.includes('requested_role')) {
+        errorMessage += '\n\n💡 Solution: Run FIX_USER_REQUESTS_CONSTRAINT.sql in Supabase SQL Editor';
+      } else if (error.message.includes('password') || error.message.includes('column')) {
+        errorMessage += '\n\n💡 Solution: Run add_password_to_user_requests.sql in Supabase SQL Editor';
+      }
+      
+      toast.error('❌ Error: ' + errorMessage);
     } finally {
       setLoading(false);
     }
@@ -157,37 +199,63 @@ const Register = () => {
             />
           </div>
 
-          {/* Requested Role */}
+          {/* Password */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Requested Access Level *
+              Password *
             </label>
-            <div className="space-y-3">
-              {roles.map((role) => (
-                <label
-                  key={role.value}
-                  className={`block p-4 border-2 rounded-lg cursor-pointer transition ${
-                    formData.requested_role === role.value
-                      ? 'border-cyan-500 bg-gray-700'
-                      : 'border-gray-600 hover:border-gray-500'
-                  }`}
-                >
-                  <div className="flex items-start">
-                    <input
-                      type="radio"
-                      name="requested_role"
-                      value={role.value}
-                      checked={formData.requested_role === role.value}
-                      onChange={(e) => setFormData({ ...formData, requested_role: e.target.value })}
-                      className="mt-1 mr-3"
-                    />
-                    <div>
-                      <div className="font-semibold text-gray-100">{role.label}</div>
-                      <div className="text-sm text-gray-400">{role.description}</div>
-                    </div>
-                  </div>
-                </label>
-              ))}
+            <input
+              type="password"
+              required
+              value={formData.password}
+              onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-gray-100"
+              placeholder="Minimum 8 characters"
+              minLength={8}
+            />
+            <p className="mt-1 text-xs text-gray-400">
+              Password must be at least 8 characters long
+            </p>
+          </div>
+
+          {/* Confirm Password */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Confirm Password *
+            </label>
+            <input
+              type="password"
+              required
+              value={formData.confirmPassword}
+              onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
+              className="w-full px-4 py-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent text-gray-100"
+              placeholder="Re-enter your password"
+            />
+            {formData.password && formData.confirmPassword && formData.password !== formData.confirmPassword && (
+              <p className="mt-1 text-xs text-red-400">
+                Passwords do not match
+              </p>
+            )}
+          </div>
+
+          {/* Info: All users are standard users */}
+          <div className="bg-blue-900 bg-opacity-20 border border-blue-700 rounded-lg p-4">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <h3 className="text-sm font-medium text-blue-400">
+                  Standard User Access
+                </h3>
+                <div className="mt-2 text-sm text-blue-300">
+                  <p>
+                    All users receive standard access. Page permissions will be assigned by administrator based on your user category after approval.
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
 

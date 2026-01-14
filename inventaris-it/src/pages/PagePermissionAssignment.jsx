@@ -38,32 +38,14 @@ const AVAILABLE_PAGES = [
 const PagePermissionAssignment = () => {
   const toast = useToast();
   const [userCategories, setUserCategories] = useState([]);
-  const [permissions, setPermissions] = useState({}); // { categoryId: { pageRoute: { can_view, id } } }
+  const [permissions, setPermissions] = useState({}); // { categoryId: Set<pageRoute> }
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [selectedPage, setSelectedPage] = useState(null);
 
   useEffect(() => {
     fetchData();
   }, []);
-
-  useEffect(() => {
-    if (selectedCategory && AVAILABLE_PAGES.length > 0 && !selectedPage) {
-      setSelectedPage(AVAILABLE_PAGES[0].route);
-    }
-    
-    // Log current permissions when category changes
-    if (selectedCategory) {
-      const categoryData = userCategories.find(cat => cat.id === selectedCategory);
-      const categoryPerms = permissions[selectedCategory] || {};
-      const pageCount = Object.keys(categoryPerms).filter(
-        route => categoryPerms[route]?.can_view
-      ).length;
-      console.log(`[Category Switch] Selected category: "${categoryData?.name}" (${selectedCategory}), has ${pageCount} pages with view access`);
-      console.log(`[Category Switch] Available permissions:`, Object.keys(categoryPerms));
-    }
-  }, [selectedCategory, permissions, userCategories]);
 
   const fetchData = async () => {
     try {
@@ -81,43 +63,27 @@ const PagePermissionAssignment = () => {
       // Fetch existing permissions
       const { data: permData, error: permError } = await supabase
         .from('user_category_page_permissions')
-        .select('*');
+        .select('user_category_id, page_route')
+        .eq('can_view', true);
 
       if (permError) throw permError;
 
-      // Build permissions map
+      // Build permissions map as Set
       const permMap = {};
       permData.forEach((perm) => {
         if (!permMap[perm.user_category_id]) {
-          permMap[perm.user_category_id] = {};
+          permMap[perm.user_category_id] = new Set();
         }
-        permMap[perm.user_category_id][perm.page_route] = {
-          can_view: perm.can_view || false,
-          id: perm.id
-        };
+        permMap[perm.user_category_id].add(perm.page_route);
       });
 
       setUserCategories(ucData || []);
       setPermissions(permMap);
 
-      // Auto-select first category if available (only if no category is selected)
-      if (ucData && ucData.length > 0 && !selectedCategory) {
+      // Auto-select first category if available
+      if (ucData && ucData.length > 0) {
         setSelectedCategory(ucData[0].id);
       }
-      
-      // If a category is already selected, ensure it still exists
-      if (selectedCategory && ucData && !ucData.find(cat => cat.id === selectedCategory)) {
-        // Selected category no longer exists, select first one
-        setSelectedCategory(ucData[0].id);
-        setSelectedPage(null); // Reset page selection
-      }
-      
-      console.log('[PagePermissionAssignment] Data fetched:', {
-        categories: ucData?.length || 0,
-        permissions: Object.keys(permMap).length,
-        selectedCategory,
-        selectedPage
-      });
     } catch (error) {
       console.error('Error fetching data:', error);
       toast.error('❌ Gagal memuat data: ' + error.message);
@@ -126,128 +92,141 @@ const PagePermissionAssignment = () => {
     }
   };
 
-  const getPagePermissions = (categoryId, pageRoute) => {
-    const perms = permissions[categoryId]?.[pageRoute] || {
-      can_view: false
-    };
-    return perms;
-  };
+  const handleTogglePage = async (pageRoute) => {
+    if (!selectedCategory) return;
 
-  const handlePermissionChange = async (hasAccess) => {
-    if (!selectedCategory || !selectedPage) {
-      toast.error('❌ Silakan pilih kategori dan halaman terlebih dahulu');
-      return;
-    }
+    const currentPermissions = permissions[selectedCategory] || new Set();
+    const hasAccess = currentPermissions.has(pageRoute);
 
     try {
       setSaving(true);
 
-      const currentPerms = getPagePermissions(selectedCategory, selectedPage);
-      const selectedCategoryData = userCategories.find(cat => cat.id === selectedCategory);
-
-      // If removing access, delete the record
-      if (!hasAccess) {
-        if (currentPerms.id) {
-          const { error } = await supabase
-            .from('user_category_page_permissions')
-            .delete()
-            .eq('id', currentPerms.id);
-
-          if (error) throw error;
-
-          // Update local state
-          setPermissions((prev) => {
-            const newPerms = { ...prev };
-            if (newPerms[selectedCategory]?.[selectedPage]) {
-              delete newPerms[selectedCategory][selectedPage];
-            }
-            return newPerms;
-          });
-        }
-      } else {
-        // Grant access - upsert permission (only can_view, set others to false)
-        const upsertData = currentPerms.id 
-          ? {
-              id: currentPerms.id,
-              user_category_id: selectedCategory,
-              page_route: selectedPage,
-              can_view: true,
-              can_create: false,
-              can_edit: false,
-              can_delete: false
-            }
-          : {
-              user_category_id: selectedCategory,
-              page_route: selectedPage,
-              can_view: true,
-              can_create: false,
-              can_edit: false,
-              can_delete: false
-            };
-        
-        const { data, error } = await supabase
+      if (hasAccess) {
+        // Remove access
+        const { error } = await supabase
           .from('user_category_page_permissions')
-          .upsert(upsertData, {
-            onConflict: 'user_category_id,page_route'
-          })
-          .select()
-          .single();
+          .delete()
+          .eq('user_category_id', selectedCategory)
+          .eq('page_route', pageRoute);
 
         if (error) throw error;
 
         // Update local state
-        setPermissions((prev) => {
-          const newPerms = { ...prev };
-          if (!newPerms[selectedCategory]) {
-            newPerms[selectedCategory] = {};
-          }
-          newPerms[selectedCategory][selectedPage] = {
+        const newSet = new Set(currentPermissions);
+        newSet.delete(pageRoute);
+        setPermissions((prev) => ({
+          ...prev,
+          [selectedCategory]: newSet,
+        }));
+      } else {
+        // Grant access
+        const { error } = await supabase
+          .from('user_category_page_permissions')
+          .insert({
+            user_category_id: selectedCategory,
+            page_route: pageRoute,
             can_view: true,
-            id: data.id
-          };
-          return newPerms;
-        });
-      }
+            can_create: false,
+            can_edit: false,
+            can_delete: false,
+          });
 
-      toast.success('✅ Akses halaman diperbarui!');
-      
-      // Refresh permissions data
-      const { data: permData, error: permError } = await supabase
-        .from('user_category_page_permissions')
-        .select('*');
-      
-      if (!permError && permData) {
-        const permMap = {};
-        permData.forEach((perm) => {
-          if (!permMap[perm.user_category_id]) {
-            permMap[perm.user_category_id] = {};
-          }
-          permMap[perm.user_category_id][perm.page_route] = {
-            can_view: perm.can_view,
-            id: perm.id
-          };
-        });
-        setPermissions(permMap);
+        if (error) throw error;
+
+        // Update local state
+        const newSet = new Set(currentPermissions);
+        newSet.add(pageRoute);
+        setPermissions((prev) => ({
+          ...prev,
+          [selectedCategory]: newSet,
+        }));
       }
     } catch (error) {
-      console.error('[Permission Change] Error:', error);
-      toast.error('❌ Gagal mengubah akses: ' + (error.message || error.toString()));
+      console.error('Error toggling page:', error);
+      toast.error('❌ Gagal mengubah akses: ' + error.message);
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSelectAll = async () => {
+    if (!selectedCategory) return;
+
+    try {
+      setSaving(true);
+
+      // Get all page routes
+      const allPageRoutes = AVAILABLE_PAGES.map((page) => page.route);
+
+      // Insert all (ignore conflicts)
+      const inserts = allPageRoutes.map((pageRoute) => ({
+        user_category_id: selectedCategory,
+        page_route: pageRoute,
+        can_view: true,
+        can_create: false,
+        can_edit: false,
+        can_delete: false,
+      }));
+
+      const { error } = await supabase
+        .from('user_category_page_permissions')
+        .upsert(inserts, { onConflict: 'user_category_id,page_route' });
+
+      if (error) throw error;
+
+      // Update local state
+      setPermissions((prev) => ({
+        ...prev,
+        [selectedCategory]: new Set(allPageRoutes),
+      }));
+
+      toast.success('✅ Berhasil assign semua halaman!');
+    } catch (error) {
+      console.error('Error selecting all:', error);
+      toast.error('❌ Gagal assign semua halaman: ' + error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeselectAll = async () => {
+    if (!selectedCategory) return;
+
+    try {
+      setSaving(true);
+
+      // Delete all permissions for this category
+      const { error } = await supabase
+        .from('user_category_page_permissions')
+        .delete()
+        .eq('user_category_id', selectedCategory);
+
+      if (error) throw error;
+
+      // Update local state
+      setPermissions((prev) => ({
+        ...prev,
+        [selectedCategory]: new Set(),
+      }));
+
+      toast.success('✅ Berhasil hapus semua akses!');
+    } catch (error) {
+      console.error('Error deselecting all:', error);
+      toast.error('❌ Gagal hapus akses: ' + error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const getAssignedCount = (categoryId) => {
+    return permissions[categoryId]?.size || 0;
   };
 
   const selectedCategoryData = userCategories.find(
     (cat) => cat.id === selectedCategory
   );
 
-  const currentPageData = AVAILABLE_PAGES.find(
-    (page) => page.route === selectedPage
-  );
-
-  const currentPerms = selectedCategory && selectedPage
-    ? getPagePermissions(selectedCategory, selectedPage)
-    : { can_view: false };
+  const currentPermissions = permissions[selectedCategory] || new Set();
 
   if (loading) {
     return (
@@ -273,68 +252,37 @@ const PagePermissionAssignment = () => {
               Tentukan akses halaman untuk setiap kategori user
             </p>
           </div>
-          <button
-            onClick={async () => {
-              console.log('[Debug] Manual refresh triggered');
-              await fetchData();
-              toast.success('✅ Data refreshed!');
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm transition"
-          >
-            🔄 Refresh Data
-          </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Left Panel - User Categories */}
           <div className="lg:col-span-1">
             <div className="bg-gray-800 rounded-xl shadow-md p-4">
               <h2 className="text-lg font-semibold text-white mb-4">Kategori User</h2>
               <div className="space-y-2">
-                {userCategories.map((category) => {
-                  const categoryPerms = permissions[category.id] || {};
-                  const pageCount = Object.keys(categoryPerms).filter(
-                    route => categoryPerms[route]?.can_view
-                  ).length;
-                  
-                  // Debug log for category permissions
-                  if (selectedCategory === category.id) {
-                    console.log(`[UI] Category "${category.name}" permissions:`, {
-                      totalRoutes: Object.keys(categoryPerms).length,
-                      viewAccessRoutes: Object.keys(categoryPerms).filter(r => categoryPerms[r]?.can_view),
-                      pageCount
-                    });
-                  }
-                  
-                  return (
-                    <button
-                      key={category.id}
-                      onClick={() => {
-                        console.log(`[UI] Clicked category: ${category.name} (${category.id})`);
-                        setSelectedCategory(category.id);
-                      }}
-                      className={`w-full text-left px-4 py-3 rounded-lg transition ${
-                        selectedCategory === category.id
-                          ? 'bg-cyan-600 text-white'
-                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="font-semibold">{category.name}</p>
-                          {category.description && (
-                            <p className="text-xs text-gray-400 mt-1">{category.description}</p>
-                          )}
-                        </div>
-                        <span className={`text-xs px-2 py-1 rounded-full ${
-                          pageCount > 0 ? 'bg-green-900 text-green-200' : 'bg-gray-900 text-gray-400'
-                        }`}>
-                          {pageCount} pages
-                        </span>
+                {userCategories.map((category) => (
+                  <button
+                    key={category.id}
+                    onClick={() => setSelectedCategory(category.id)}
+                    className={`w-full text-left px-4 py-3 rounded-lg transition ${
+                      selectedCategory === category.id
+                        ? 'bg-cyan-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold">{category.name}</p>
+                        {category.description && (
+                          <p className="text-xs text-gray-400 mt-1">{category.description}</p>
+                        )}
                       </div>
-                    </button>
-                  );
-                })}
+                      <span className="text-xs bg-gray-900 px-2 py-1 rounded-full">
+                        {getAssignedCount(category.id)} halaman
+                      </span>
+                    </div>
+                  </button>
+                ))}
               </div>
 
               {userCategories.length === 0 && (
@@ -346,87 +294,80 @@ const PagePermissionAssignment = () => {
             </div>
           </div>
 
-          {/* Middle Panel - Pages */}
-          <div className="lg:col-span-1">
-            <div className="bg-gray-800 rounded-xl shadow-md p-4">
-              <h2 className="text-lg font-semibold text-white mb-4">Halaman</h2>
-              <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                {AVAILABLE_PAGES.map((page) => {
-                  const hasViewAccess = selectedCategory
-                    ? getPagePermissions(selectedCategory, page.route).can_view
-                    : false;
-
-                  return (
-                    <button
-                      key={page.route}
-                      onClick={() => setSelectedPage(page.route)}
-                      className={`w-full text-left px-4 py-3 rounded-lg transition ${
-                        selectedPage === page.route
-                          ? 'bg-cyan-600 text-white'
-                          : hasViewAccess
-                          ? 'bg-green-900/30 border border-green-600 text-gray-300 hover:bg-green-900/50'
-                          : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                      }`}
-                    >
-                      <p className="font-semibold text-sm">{page.label}</p>
-                      <p className="text-xs opacity-75 mt-1">{page.route}</p>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Right Panel - Permissions */}
+          {/* Right Panel - Pages */}
           <div className="lg:col-span-2">
             <div className="bg-gray-800 rounded-xl shadow-md">
               {/* Header */}
               <div className="p-4 border-b border-gray-700">
-                <h2 className="text-lg font-semibold text-white">
-                  Akses Halaman: {selectedCategoryData?.name || '-'} → {currentPageData?.label || '-'}
-                </h2>
-                <p className="text-sm text-gray-400 mt-1">
-                  {currentPageData?.description || ''}
-                </p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      Halaman untuk: {selectedCategoryData?.name || '-'}
+                    </h2>
+                    <p className="text-sm text-gray-400 mt-1">
+                      {currentPermissions.size} dari {AVAILABLE_PAGES.length} halaman dipilih
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSelectAll}
+                      disabled={saving || !selectedCategory}
+                      className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm rounded-lg transition"
+                    >
+                      Pilih Semua
+                    </button>
+                    <button
+                      onClick={handleDeselectAll}
+                      disabled={saving || !selectedCategory || currentPermissions.size === 0}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-sm rounded-lg transition"
+                    >
+                      Hapus Semua
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {/* Permissions Form */}
-              <div className="p-6">
-                {!selectedCategory || !selectedPage ? (
+              {/* Pages List */}
+              <div className="p-4">
+                {!selectedCategory ? (
                   <div className="text-center py-12 text-gray-400">
-                    <p className="text-lg">Pilih kategori dan halaman terlebih dahulu</p>
+                    <p className="text-lg">Pilih kategori user terlebih dahulu</p>
+                  </div>
+                ) : AVAILABLE_PAGES.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <p className="text-lg">Belum ada halaman</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
-                    {/* Simple Access Toggle */}
-                    <div className="flex items-center justify-between p-6 bg-gray-700 rounded-lg">
-                      <div className="flex-1">
-                        <label className="flex items-center cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={currentPerms.can_view}
-                            onChange={(e) => handlePermissionChange(e.target.checked)}
-                            disabled={saving}
-                            className="w-6 h-6 text-cyan-600 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500 focus:ring-2"
-                          />
-                          <div className="ml-4">
-                            <p className="text-lg font-semibold text-white">Akses Halaman</p>
-                            <p className="text-sm text-gray-400 mt-1">
-                              {currentPerms.can_view 
-                                ? 'Kategori ini memiliki akses ke halaman ini' 
-                                : 'Kategori ini tidak memiliki akses ke halaman ini'}
-                            </p>
+                  <div className="space-y-2 max-h-[600px] overflow-y-auto">
+                    {AVAILABLE_PAGES.map((page) => {
+                      const hasAccess = currentPermissions.has(page.route);
+                      return (
+                        <div
+                          key={page.route}
+                          className={`flex items-center justify-between p-4 rounded-lg border-2 transition ${
+                            hasAccess
+                              ? 'bg-cyan-900/20 border-cyan-600'
+                              : 'bg-gray-700 border-gray-600 hover:border-gray-500'
+                          }`}
+                        >
+                          <div className="flex-1">
+                            <p className="font-semibold text-white">{page.label}</p>
+                            <p className="text-sm text-gray-400 mt-1">{page.description || page.route}</p>
                           </div>
-                        </label>
-                      </div>
-                      <span className={`px-4 py-2 rounded-full text-sm font-semibold ${
-                        currentPerms.can_view
-                          ? 'bg-green-900 text-green-200'
-                          : 'bg-red-900 text-red-200'
-                      }`}>
-                        {currentPerms.can_view ? 'Memiliki Akses' : 'Tidak Ada Akses'}
-                      </span>
-                    </div>
+                          <button
+                            onClick={() => handleTogglePage(page.route)}
+                            disabled={saving}
+                            className={`ml-4 px-4 py-2 rounded-lg font-medium transition ${
+                              hasAccess
+                                ? 'bg-red-600 hover:bg-red-700 text-white'
+                                : 'bg-cyan-600 hover:bg-cyan-700 text-white'
+                            } disabled:opacity-50 disabled:cursor-not-allowed`}
+                          >
+                            {hasAccess ? '✕ Hapus' : '✓ Assign'}
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -444,8 +385,8 @@ const PagePermissionAssignment = () => {
               <p className="font-semibold mb-1">Catatan:</p>
               <ul className="list-disc list-inside space-y-1 text-blue-200">
                 <li>Administrator selalu memiliki akses penuh ke semua halaman</li>
-                <li>Centang "Akses Halaman" untuk memberikan akses kategori ke halaman yang dipilih</li>
-                <li>Jika tidak dicentang, user dengan kategori tersebut tidak bisa mengakses halaman</li>
+                <li>Klik "Assign" untuk memberikan akses kategori ke halaman yang dipilih</li>
+                <li>Jika tidak di-assign, user dengan kategori tersebut tidak bisa mengakses halaman</li>
                 <li>Akses di-enforce di database level melalui RLS policies</li>
               </ul>
             </div>

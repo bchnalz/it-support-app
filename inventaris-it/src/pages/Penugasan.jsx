@@ -20,6 +20,7 @@ const Penugasan = () => {
   const [skpCategories, setSkpCategories] = useState([]);
   const [filteredSkpCategories, setFilteredSkpCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [userCategory, setUserCategory] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedHeldTask, setSelectedHeldTask] = useState(null);
@@ -51,6 +52,12 @@ const Penugasan = () => {
   const [perangkatSearch, setPerangkatSearch] = useState('');
 
   useEffect(() => {
+    if (profile?.id) {
+      fetchUserCategory();
+    }
+  }, [profile?.id]);
+
+  useEffect(() => {
     checkPermissions();
     fetchTasks();
     fetchHeldTasks();
@@ -64,7 +71,24 @@ const Penugasan = () => {
         if (interval) clearInterval(interval);
       });
     };
-  }, [profile]);
+  }, [profile, userCategory]);
+
+  const fetchUserCategory = async () => {
+    if (!profile?.id) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('user_category:user_categories!user_category_id(name)')
+        .eq('id', profile.id)
+        .single();
+      
+      if (error) throw error;
+      setUserCategory(data?.user_category?.name);
+    } catch (error) {
+      console.error('Error fetching user category:', error);
+    }
+  };
 
   const checkPermissions = async () => {
     if (profile?.role === 'administrator') {
@@ -127,7 +151,11 @@ const Penugasan = () => {
         .order('created_at', { ascending: false });
       
       // Only filter by assigned_by if user is not administrator or helpdesk
-      if (profile?.role !== 'administrator' && profile?.role !== 'helpdesk') {
+      // Helpdesk is identified by user_category, not role
+      const isAdministrator = profile?.role === 'administrator';
+      const isHelpdesk = userCategory === 'Helpdesk';
+      
+      if (!isAdministrator && !isHelpdesk) {
         query = query.eq('assigned_by', user.id);
       }
       
@@ -166,6 +194,7 @@ const Penugasan = () => {
       setTasks(tasksWithUsers);
     } catch (error) {
       console.error('Error fetching tasks:', error.message);
+      toast.error('❌ Gagal memuat tugas: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -179,7 +208,11 @@ const Penugasan = () => {
         .select('*');
       
       // Only filter by assigned_by if user is not administrator or helpdesk
-      if (profile?.role !== 'administrator' && profile?.role !== 'helpdesk') {
+      // Helpdesk is identified by user_category, not role
+      const isAdministrator = profile?.role === 'administrator';
+      const isHelpdesk = userCategory === 'Helpdesk';
+      
+      if (!isAdministrator && !isHelpdesk) {
         query = query.eq('assigned_by', user.id);
       }
       
@@ -198,10 +231,15 @@ const Penugasan = () => {
         .from('available_it_support')
         .select('*');
 
-      if (error) throw error;
+      if (error) {
+        console.error('Error fetching IT Support:', error.message);
+        toast.error('❌ Gagal memuat daftar IT Support: ' + error.message);
+        return;
+      }
       setAvailableITSupport(data || []);
     } catch (error) {
       console.error('Error fetching IT Support:', error.message);
+      toast.error('❌ Gagal memuat daftar IT Support: ' + error.message);
     }
   };
 

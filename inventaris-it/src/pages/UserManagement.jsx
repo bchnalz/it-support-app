@@ -12,6 +12,15 @@ const UserManagement = () => {
   const [requests, setRequests] = useState([]);
   const [users, setUsers] = useState([]);
   const [processingId, setProcessingId] = useState(null);
+  const [showAddUserForm, setShowAddUserForm] = useState(false);
+  const [newUserForm, setNewUserForm] = useState({
+    email: '',
+    full_name: '',
+    password: '',
+    role: 'standard',
+    user_category_id: null,
+  });
+  const [userCategories, setUserCategories] = useState([]);
 
   useEffect(() => {
     if (activeTab === 'pending' || activeTab === 'approved') {
@@ -19,7 +28,22 @@ const UserManagement = () => {
     } else if (activeTab === 'all-users') {
       fetchUsers();
     }
+    fetchUserCategories();
   }, [activeTab]);
+
+  const fetchUserCategories = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('user_categories')
+        .select('id, name')
+        .order('name');
+      
+      if (error) throw error;
+      setUserCategories(data || []);
+    } catch (error) {
+      console.error('Error fetching user categories:', error);
+    }
+  };
 
   const fetchRequests = async () => {
     try {
@@ -68,16 +92,24 @@ const UserManagement = () => {
   };
 
   const handleApprove = async (request) => {
-    if (!confirm(`Approve access request for ${request.full_name}?\n\nRole: ${request.requested_role}`)) {
+    if (!confirm(`Approve access request for ${request.full_name}?\n\nRole: ${request.requested_role}\n\nA user account will be created and they will receive login credentials via email.`)) {
       return;
     }
 
     setProcessingId(request.id);
 
     try {
-      // Create user account in Supabase Auth
-      // Note: In production, this should be done via Supabase Edge Function or Admin API
-      // For now, we'll just update the request status
+      // Note: supabase.auth.admin is not available client-side
+      // User creation must be done via Supabase Dashboard or Edge Function
+      // For now, we'll just mark the request as approved
+      // Administrator needs to manually create the user in Supabase Dashboard
+      // The password is stored in user_requests.password field
+      
+      const passwordInfo = request.password 
+        ? `\n\nPassword: ${request.password}\n\n⚠️ Save this password! It will be used to create the user account.`
+        : '\n\n⚠️ No password provided. You will need to set a password when creating the account.';
+      
+      toast.info(`✅ Request approved! Please create the user account in Supabase Dashboard using the password from the request.${passwordInfo}\n\nSee HOW_TO_ADD_NEW_USER.md for instructions.`);
       
       // Update request status
       const { error: updateError } = await supabase
@@ -91,16 +123,20 @@ const UserManagement = () => {
 
       if (updateError) throw updateError;
 
-      toast.success(`✅ Request approved! User: ${request.full_name}`);
+      toast.success(`✅ Request approved! Please create the user account in Supabase Dashboard. See HOW_TO_ADD_NEW_USER.md for instructions.`);
 
       fetchRequests();
+      if (activeTab === 'all-users') {
+        fetchUsers();
+      }
     } catch (error) {
       console.error('Error approving request:', error);
-      toast.success('✅ ❌ Error: ' + error.message);
+      toast.error('❌ Error: ' + error.message);
     } finally {
       setProcessingId(null);
     }
   };
+
 
   const handleReject = async (request) => {
     const reason = prompt(`Reject access request for ${request.full_name}?\n\nPlease provide a reason:`);
@@ -153,7 +189,61 @@ const UserManagement = () => {
       fetchUsers();
     } catch (error) {
       console.error('Error updating user status:', error);
-      toast.success('✅ ❌ Error: ' + error.message);
+      toast.error('❌ Error: ' + error.message);
+    }
+  };
+
+  const handleAddUser = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      // Validate email format
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(newUserForm.email)) {
+        throw new Error('Invalid email format');
+      }
+
+      // Check if email already exists
+      const { data: existingUser } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', newUserForm.email)
+        .single();
+
+      if (existingUser) {
+        throw new Error('User with this email already exists');
+      }
+
+      // Note: supabase.auth.admin is not available client-side
+      // User creation must be done via Supabase Dashboard
+      // Instructions:
+      // 1. Go to Supabase Dashboard → Authentication → Users → Add User
+      // 2. Enter email and password
+      // 3. Set email as confirmed
+      // 4. The profile will be auto-created via trigger
+      // 5. Then update the profile with category if needed
+      
+      throw new Error('User creation via client is not available. Please create the user in Supabase Dashboard first, then assign category via "Assign Kategori User" page. See HOW_TO_ADD_NEW_USER.md for detailed instructions.');
+
+      toast.info('⚠️ User creation requires Supabase Dashboard. See HOW_TO_ADD_NEW_USER.md for instructions.');
+      
+      // Reset form
+      setNewUserForm({
+        email: '',
+        full_name: '',
+        password: '',
+        role: 'standard',
+        user_category_id: null,
+      });
+      setShowAddUserForm(false);
+      
+      fetchUsers();
+    } catch (error) {
+      console.error('Error creating user:', error);
+      toast.error('❌ Error: ' + error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -187,12 +277,152 @@ const UserManagement = () => {
     <Layout>
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage user access requests and system users
-          </p>
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
+            <p className="mt-1 text-sm text-gray-500">
+              Manage user access requests and system users
+            </p>
+          </div>
+          {activeTab === 'all-users' && (
+            <button
+              onClick={() => setShowAddUserForm(true)}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition"
+            >
+              + Add User
+            </button>
+          )}
         </div>
+
+        {/* Add User Modal */}
+        {showAddUserForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-2xl font-bold text-gray-900">Add New User</h2>
+                <button
+                  onClick={() => {
+                    setShowAddUserForm(false);
+                    setNewUserForm({
+                      email: '',
+                      full_name: '',
+                      password: '',
+                      role: 'standard',
+                      user_category_id: null,
+                    });
+                  }}
+                  className="text-gray-400 hover:text-gray-600 text-2xl font-bold"
+                >
+                  ×
+                </button>
+              </div>
+
+              <form onSubmit={handleAddUser} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email Address *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={newUserForm.email}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="user@example.com"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Full Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newUserForm.full_name}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, full_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="John Doe"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Password (leave empty to generate temporary password)
+                  </label>
+                  <input
+                    type="password"
+                    value={newUserForm.password}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    placeholder="Auto-generated if empty"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Role *
+                  </label>
+                  <select
+                    required
+                    value={newUserForm.role}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="standard">Standard User</option>
+                    <option value="administrator">Administrator</option>
+                  </select>
+                </div>
+
+                {newUserForm.role === 'standard' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      User Category (Optional)
+                    </label>
+                    <select
+                      value={newUserForm.user_category_id || ''}
+                      onChange={(e) => setNewUserForm({ ...newUserForm, user_category_id: e.target.value || null })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">-- No Category --</option>
+                      {userCategories.map((cat) => (
+                        <option key={cat.id} value={cat.id}>
+                          {cat.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddUserForm(false);
+                      setNewUserForm({
+                        email: '',
+                        full_name: '',
+                        password: '',
+                        role: 'standard',
+                        user_category_id: null,
+                      });
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {loading ? 'Creating...' : 'Create User'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="border-b border-gray-200">
@@ -267,6 +497,9 @@ const UserManagement = () => {
                             Requested Role
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Password
+                          </th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                             Requested At
                           </th>
                           <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -299,6 +532,22 @@ const UserManagement = () => {
                                 {request.requested_role.replace('_', ' ').toUpperCase()}
                               </span>
                             </td>
+                            <td className="px-6 py-4">
+                              {request.password ? (
+                                <button
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(request.password);
+                                    toast.success('Password copied to clipboard!');
+                                  }}
+                                  className="text-xs text-blue-600 hover:text-blue-800 underline"
+                                  title="Click to copy password"
+                                >
+                                  📋 Copy Password
+                                </button>
+                              ) : (
+                                <span className="text-xs text-gray-400">No password</span>
+                              )}
+                            </td>
                             <td className="px-6 py-4 text-sm text-gray-500 group-hover:text-gray-300">
                               {formatDate(request.created_at)}
                             </td>
@@ -310,9 +559,18 @@ const UserManagement = () => {
                             {activeTab === 'pending' && (
                               <td className="px-6 py-4 text-sm font-medium space-x-2">
                                 <button
-                                  onClick={() => handleApprove(request)}
+                                  onClick={() => {
+                                    if (request.password) {
+                                      // Copy password to clipboard if available
+                                      navigator.clipboard.writeText(request.password).then(() => {
+                                        toast.info('Password copied to clipboard!');
+                                      });
+                                    }
+                                    handleApprove(request);
+                                  }}
                                   disabled={processingId === request.id}
                                   className="text-green-600 hover:text-green-900 disabled:opacity-50"
+                                  title={request.password ? 'Click to approve (password will be copied to clipboard)' : 'Click to approve'}
                                 >
                                   ✅ Approve
                                 </button>
