@@ -47,15 +47,6 @@ const ProgressSKP = () => {
         return;
       }
 
-      // Get achievements for current year (dari task assignments)
-      const { data: achievements, error: achievementsError } = await supabase
-        .from('skp_achievements')
-        .select('*')
-        .eq('user_id', user?.id)
-        .eq('year', currentYear);
-      
-      if (achievementsError) throw achievementsError;
-
       // Get targets for current year
       const skpIds = assignedSkps.map(item => item.skp_category_id);
       const { data: targets, error: targetsError } = await supabase
@@ -75,6 +66,80 @@ const ProgressSKP = () => {
         .lte('tanggal_entry', `${currentYear}-12-31`);
       
       if (inventarisasiError) console.error('Error counting inventarisasi:', inventarisasiError);
+
+      // Get completed tasks count from task_assignment_users (multi-user system)
+      // Count tasks where user has completed_at set (more flexible than just status='completed')
+      const { data: completedTasks, error: tasksError } = await supabase
+        .from('task_assignment_users')
+        .select(`
+          task_assignment_id,
+          completed_at,
+          status,
+          task_assignments(
+            skp_category_id
+          )
+        `)
+        .eq('user_id', user?.id)
+        .not('completed_at', 'is', null);
+      
+      if (tasksError) {
+        console.error('Error counting tasks from task_assignment_users:', tasksError);
+      }
+
+      // Also check tasks assigned directly via task_assignments.assigned_to (fallback for old tasks)
+      const { data: directTasks, error: directTasksError } = await supabase
+        .from('task_assignments')
+        .select('skp_category_id, completed_at')
+        .eq('assigned_to', user?.id)
+        .eq('status', 'completed')
+        .not('completed_at', 'is', null);
+      
+      if (directTasksError) {
+        console.error('Error counting tasks from task_assignments:', directTasksError);
+      }
+
+      // Debug: Log what we got
+      console.log('Completed tasks from task_assignment_users:', completedTasks?.length || 0);
+      console.log('Completed tasks from task_assignments (direct):', directTasks?.length || 0);
+
+      // Count tasks per SKP category for current year
+      const taskCountsBySkp = {};
+      
+      // Count from task_assignment_users (multi-user system)
+      if (completedTasks && completedTasks.length > 0) {
+        completedTasks.forEach(task => {
+          // Handle both array and object cases (Supabase might return array for joins)
+          const taskData = Array.isArray(task.task_assignments) 
+            ? task.task_assignments[0] 
+            : task.task_assignments;
+          
+          // Use completed_at from task_assignment_users (when user completed their part)
+          const completedAt = task.completed_at;
+          const skpCategoryId = taskData?.skp_category_id;
+          
+          if (skpCategoryId && completedAt) {
+            const taskYear = new Date(completedAt).getFullYear();
+            if (taskYear === currentYear) {
+              taskCountsBySkp[skpCategoryId] = (taskCountsBySkp[skpCategoryId] || 0) + 1;
+            }
+          }
+        });
+      }
+
+      // Count from direct assignments (fallback for tasks not in multi-user system)
+      if (directTasks && directTasks.length > 0) {
+        directTasks.forEach(task => {
+          if (task.skp_category_id && task.completed_at) {
+            const taskYear = new Date(task.completed_at).getFullYear();
+            if (taskYear === currentYear) {
+              const skpId = task.skp_category_id;
+              taskCountsBySkp[skpId] = (taskCountsBySkp[skpId] || 0) + 1;
+            }
+          }
+        });
+      }
+
+      console.log('Task counts by SKP:', taskCountsBySkp);
 
       // Build progress array with ALL assigned SKPs
       const progressData = assignedSkps.map(item => {
@@ -98,9 +163,8 @@ const ProgressSKP = () => {
           // SPECIAL CASE: Inventarisasi dihitung dari tabel perangkat
           completedCount = inventarisasiCount || 0;
         } else {
-          // NORMAL CASE: Dari task achievements
-          const achievement = achievements?.find(a => a.skp_category_id === item.skp_category_id);
-          completedCount = achievement?.completed_count || 0;
+          // NORMAL CASE: Count from task_assignment_users
+          completedCount = taskCountsBySkp[item.skp_category_id] || 0;
         }
 
         return {
