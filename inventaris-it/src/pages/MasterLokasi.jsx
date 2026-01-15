@@ -51,10 +51,23 @@ const MasterLokasi = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      // Trim and validate kode
+      const trimmedKode = form.kode.trim();
+      if (!trimmedKode) {
+        toast.error('❌ Kode tidak boleh kosong!');
+        return;
+      }
+
+      const submitData = {
+        ...form,
+        kode: trimmedKode,
+        nama: form.nama.trim(),
+      };
+
       if (editingId) {
         const { error } = await supabase
           .from('ms_lokasi')
-          .update(form)
+          .update(submitData)
           .eq('id', editingId);
 
         if (error) throw error;
@@ -62,9 +75,19 @@ const MasterLokasi = () => {
       } else {
         const { error } = await supabase
           .from('ms_lokasi')
-          .insert([form]);
+          .insert([submitData]);
 
-        if (error) throw error;
+        if (error) {
+          // Provide more specific error messages
+          if (error.code === '23505') {
+            toast.error('❌ Kode sudah digunakan! Silakan gunakan kode lain.');
+          } else if (error.message.includes('permission') || error.message.includes('policy')) {
+            toast.error('❌ Anda tidak memiliki izin untuk menambahkan lokasi. Hanya IT Support yang dapat menambahkan lokasi baru.');
+          } else {
+            throw error;
+          }
+          return;
+        }
         toast.success('✅ Data berhasil ditambahkan!');
       }
 
@@ -73,7 +96,8 @@ const MasterLokasi = () => {
       setEditingId(null);
       fetchLokasi();
     } catch (error) {
-      toast.error('❌ Gagal menyimpan data: ' + error.message);
+      console.error('Error saving lokasi:', error);
+      toast.error('❌ Gagal menyimpan data: ' + (error.message || 'Terjadi kesalahan'));
     }
   };
 
@@ -133,22 +157,17 @@ const MasterLokasi = () => {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Kode (3 huruf singkatan) *
+                    Kode *
                   </label>
                   <input
                     type="text"
                     required
-                    maxLength="3"
-                    pattern="[A-Z]{3}"
                     value={form.kode}
                     onChange={(e) => setForm({ ...form, kode: e.target.value.toUpperCase() })}
                     disabled={!!editingId}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-100"
-                    placeholder="ITS"
+                    placeholder="Masukkan kode lokasi"
                   />
-                  <p className="text-xs text-gray-500 mt-1">
-                    3 huruf kapital, ex: ITS, FIN, HRD
-                  </p>
                 </div>
 
                 <div>

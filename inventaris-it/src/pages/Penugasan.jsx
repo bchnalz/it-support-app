@@ -39,6 +39,9 @@ const Penugasan = () => {
   const [deletionHistory, setDeletionHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   
+  // Prevent double submission
+  const [submitting, setSubmitting] = useState(false);
+  
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -140,23 +143,27 @@ const Penugasan = () => {
       setLoading(true);
       
       // Fetch tasks with assigned users and devices
-      // Administrators and Helpdesk can see all tasks, other roles see only tasks they created
+      // Administrators, Helpdesk, and Koordinator IT Support can see all tasks, other roles see only tasks they created
       let query = supabase
         .from('task_assignments')
         .select(`
           *,
+          total_duration_minutes,
+          assigned_at,
+          completed_at,
           skp_category:skp_categories(code, name),
           assigned_by_user:profiles!task_assignments_assigned_by_fkey(full_name)
         `)
         .neq('status', 'on_hold')
         .order('created_at', { ascending: false });
       
-      // Only filter by assigned_by if user is not administrator or helpdesk
-      // Helpdesk is identified by user_category, not role
+      // Only filter by assigned_by if user is not administrator, helpdesk, or koordinator it support
+      // Helpdesk and Koordinator IT Support are identified by user_category, not role
       const isAdministrator = profile?.role === 'administrator';
       const isHelpdesk = userCategory === 'Helpdesk';
+      const isKoordinatorITSupport = userCategory === 'Koordinator IT Support';
       
-      if (!isAdministrator && !isHelpdesk) {
+      if (!isAdministrator && !isHelpdesk && !isKoordinatorITSupport) {
         query = query.eq('assigned_by', user.id);
       }
       
@@ -210,17 +217,18 @@ const Penugasan = () => {
 
   const fetchHeldTasks = async () => {
     try {
-      // Administrators and Helpdesk can see all held tasks, other roles see only tasks they created
+      // Administrators, Helpdesk, and Koordinator IT Support can see all held tasks, other roles see only tasks they created
       let query = supabase
         .from('held_tasks_with_duration')
         .select('*');
       
-      // Only filter by assigned_by if user is not administrator or helpdesk
-      // Helpdesk is identified by user_category, not role
+      // Only filter by assigned_by if user is not administrator, helpdesk, or koordinator it support
+      // Helpdesk and Koordinator IT Support are identified by user_category, not role
       const isAdministrator = profile?.role === 'administrator';
       const isHelpdesk = userCategory === 'Helpdesk';
+      const isKoordinatorITSupport = userCategory === 'Koordinator IT Support';
       
-      if (!isAdministrator && !isHelpdesk) {
+      if (!isAdministrator && !isHelpdesk && !isKoordinatorITSupport) {
         query = query.eq('assigned_by', user.id);
       }
       
@@ -365,6 +373,11 @@ const Penugasan = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    // Prevent double submission
+    if (submitting) {
+      return;
+    }
+    
     if (form.assigned_users.length === 0) {
       toast.warning('Silakan pilih minimal 1 IT Support');
       return;
@@ -380,6 +393,7 @@ const Penugasan = () => {
       return;
     }
 
+    setSubmitting(true);
     try {
       // 1. Create task assignment
       const { data: taskData, error: taskError } = await supabase
@@ -438,11 +452,18 @@ const Penugasan = () => {
       fetchAvailableITSupport();
     } catch (error) {
       toast.error('❌ Gagal membuat tugas: ' + error.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleHoldTask = async (e) => {
     e.preventDefault();
+    
+    // Prevent double submission
+    if (submitting) {
+      return;
+    }
     
     if (!form.skp_category_id) {
       toast.warning('Silakan pilih kategori SKP');
@@ -453,6 +474,7 @@ const Penugasan = () => {
       return;
     }
 
+    setSubmitting(true);
     try {
       const { error } = await supabase
         .from('task_assignments')
@@ -482,6 +504,8 @@ const Penugasan = () => {
       fetchHeldTasks();
     } catch (error) {
       toast.error('❌ Gagal hold tugas: ' + error.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -588,6 +612,17 @@ const Penugasan = () => {
     return `${mins} menit ${secs} detik`;
   };
 
+  const formatDuration = (minutes) => {
+    if (!minutes || minutes < 0) return '0 menit';
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    
+    if (hours > 0) {
+      return `${hours} jam ${mins} menit`;
+    }
+    return `${mins} menit`;
+  };
+
   const getPriorityBadge = (priority) => {
     const badges = {
       low: 'bg-gray-100 text-gray-600',
@@ -620,6 +655,16 @@ const Penugasan = () => {
       hour: '2-digit',
       minute: '2-digit',
     });
+  };
+
+  // Calculate duration in minutes from timestamps
+  const calculateDuration = (startTime, endTime = null) => {
+    if (!startTime) return null;
+    const start = new Date(startTime);
+    const end = endTime ? new Date(endTime) : new Date(); // Use current time if endTime not provided
+    const diffMs = end.getTime() - start.getTime();
+    const minutes = Math.floor(diffMs / 60000); // Convert to minutes
+    return minutes > 0 ? minutes : null;
   };
 
   // NEW: Handle view task detail
@@ -794,6 +839,14 @@ const Penugasan = () => {
                   <p className="text-sm font-semibold text-gray-900">{selectedTask.skp_category?.name}</p>
                 </div>
 
+                {/* Assignor (Dari) */}
+                {selectedTask.assigned_by_user && (
+                  <div>
+                    <p className="text-sm text-gray-600">Dari (Penugas)</p>
+                    <p className="text-sm font-semibold text-gray-900">{selectedTask.assigned_by_user?.full_name || selectedTask.assigned_by_user}</p>
+                  </div>
+                )}
+
                 {/* Assigned Users */}
                 {selectedTask.assigned_users && selectedTask.assigned_users.length > 0 && (
                   <div>
@@ -810,14 +863,65 @@ const Penugasan = () => {
                         return (
                           <div
                             key={idx}
-                            className="flex items-center gap-3 bg-slate-800 border border-slate-700 p-3 rounded-lg"
+                            className="bg-slate-800 border border-slate-700 p-3 rounded-lg"
                           >
-                            <span className="text-xl">👤</span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-slate-100 truncate">{userName}</p>
-                              {userEmail && <p className="text-xs text-slate-300 truncate">{userEmail}</p>}
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className="text-xl">👤</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-semibold text-slate-100 truncate">{userName}</p>
+                                {userEmail && <p className="text-xs text-slate-300 truncate">{userEmail}</p>}
+                              </div>
+                              {getStatusBadge(au.status)}
                             </div>
-                            {getStatusBadge(au.status)}
+                            {/* Per-user timestamps */}
+                            <div className="mt-2 pt-2 border-t border-slate-600 space-y-1 text-xs">
+                              {au.acknowledged_at && (
+                                <div className="flex items-center gap-2 text-slate-300">
+                                  <span>✅</span>
+                                  <span>Direspon:</span>
+                                  <span className="font-mono">{formatDate(au.acknowledged_at)}</span>
+                                </div>
+                              )}
+                              {au.started_at && (
+                                <div className="flex items-center gap-2 text-slate-300">
+                                  <span>▶️</span>
+                                  <span>Dimulai:</span>
+                                  <span className="font-mono">{formatDate(au.started_at)}</span>
+                                </div>
+                              )}
+                              {au.completed_at && (
+                                <div className="flex items-center gap-2 text-green-400">
+                                  <span>✓</span>
+                                  <span>Selesai:</span>
+                                  <span className="font-mono">{formatDate(au.completed_at)}</span>
+                                </div>
+                              )}
+                              {(() => {
+                                // Calculate duration from assigned_at (when task was assigned) to completed_at (or now if in progress)
+                                let duration = null;
+                                
+                                if (au.work_duration_minutes && au.work_duration_minutes > 0) {
+                                  duration = au.work_duration_minutes;
+                                } else {
+                                  // Use task's assigned_at as the start point for per-user duration
+                                  const startTime = selectedTask.assigned_at || selectedTask.created_at;
+                                  if (startTime) {
+                                    duration = calculateDuration(startTime, au.completed_at || null);
+                                  }
+                                }
+                                
+                                return duration && duration > 0 ? (
+                                  <div className="flex items-center gap-2 text-slate-300">
+                                    <span>⏱️</span>
+                                    <span>Durasi:</span>
+                                    <span className="font-semibold">
+                                      {formatDuration(duration)}
+                                      {!au.completed_at && ' (sedang berjalan)'}
+                                    </span>
+                                  </div>
+                                ) : null;
+                              })()}
+                            </div>
                           </div>
                         );
                       })}
@@ -841,18 +945,68 @@ const Penugasan = () => {
                   </div>
                 )}
 
-                {/* Timestamps */}
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <p className="text-gray-600">Dibuat</p>
-                    <p className="text-gray-900">{formatDate(selectedTask.created_at)}</p>
-                  </div>
-                  {selectedTask.assigned_at && (
-                    <div>
-                      <p className="text-gray-600">Ditugaskan</p>
-                      <p className="text-gray-900">{formatDate(selectedTask.assigned_at)}</p>
+                {/* Task Timeline */}
+                <div className="bg-slate-800 border border-slate-700 rounded-lg p-4">
+                  <p className="text-sm font-semibold text-slate-100 mb-3">📅 Timeline Tugas</p>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center gap-3">
+                      <span className="text-blue-400 font-semibold min-w-[100px]">Dibuat:</span>
+                      <span className="text-slate-200 font-mono">{formatDate(selectedTask.created_at)}</span>
                     </div>
-                  )}
+                    {selectedTask.assigned_at && (
+                      <div className="flex items-center gap-3">
+                        <span className="text-blue-400 font-semibold min-w-[100px]">Ditugaskan:</span>
+                        <span className="text-slate-200 font-mono">{formatDate(selectedTask.assigned_at)}</span>
+                      </div>
+                    )}
+                    {selectedTask.acknowledged_at && (
+                      <div className="flex items-center gap-3">
+                        <span className="text-green-400 font-semibold min-w-[100px]">✅ Direspon:</span>
+                        <span className="text-slate-200 font-mono">{formatDate(selectedTask.acknowledged_at)}</span>
+                      </div>
+                    )}
+                    {selectedTask.started_at && (
+                      <div className="flex items-center gap-3">
+                        <span className="text-purple-400 font-semibold min-w-[100px]">▶️ Dimulai:</span>
+                        <span className="text-slate-200 font-mono">{formatDate(selectedTask.started_at)}</span>
+                      </div>
+                    )}
+                    {selectedTask.completed_at && (
+                      <div className="flex items-center gap-3">
+                        <span className="text-green-400 font-semibold min-w-[100px]">✓ Selesai:</span>
+                        <span className="text-slate-200 font-mono">{formatDate(selectedTask.completed_at)}</span>
+                      </div>
+                    )}
+                    {(() => {
+                      // Calculate total duration from assigned_at to completed_at (or now if in progress)
+                      let totalDuration = null;
+                      
+                      // First, try to use the stored total_duration_minutes
+                      if (selectedTask.total_duration_minutes && selectedTask.total_duration_minutes > 0) {
+                        totalDuration = selectedTask.total_duration_minutes;
+                      } 
+                      // If not available, calculate from assigned_at to completed_at
+                      else if (selectedTask.assigned_at) {
+                        if (selectedTask.completed_at) {
+                          // Task is completed, calculate from assigned_at to completed_at
+                          totalDuration = calculateDuration(selectedTask.assigned_at, selectedTask.completed_at);
+                        } else {
+                          // Task is in progress, calculate from assigned_at to now
+                          totalDuration = calculateDuration(selectedTask.assigned_at, null);
+                        }
+                      }
+                      
+                      return totalDuration && totalDuration > 0 ? (
+                        <div className="flex items-center gap-3 pt-2 border-t border-slate-600">
+                          <span className="text-blue-400 font-semibold min-w-[100px]">⏱️ Total Durasi:</span>
+                          <span className="text-slate-100 font-bold">
+                            {formatDuration(totalDuration)}
+                            {!selectedTask.completed_at && ' (sedang berjalan)'}
+                          </span>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
                 </div>
               </div>
 
@@ -1067,6 +1221,23 @@ const Penugasan = () => {
                 <p className="text-sm font-semibold text-red-900 mb-1">{selectedTask.task_number}</p>
                 <p className="text-sm text-red-800">{selectedTask.title}</p>
               </div>
+
+              {selectedTask.assigned_devices && selectedTask.assigned_devices.length > 0 && (
+                <div className="mb-4">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Perangkat ditugaskan</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedTask.assigned_devices.map((ad, idx) => (
+                      <span
+                        key={idx}
+                        className="px-2 py-1 bg-gray-100 text-gray-800 rounded text-xs font-mono font-semibold"
+                        title={ad.perangkat?.nama_perangkat || ''}
+                      >
+                        {ad.perangkat?.id_perangkat || '-'}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1344,16 +1515,32 @@ const Penugasan = () => {
                     <button
                       type="button"
                       onClick={handleHoldTask}
-                      className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition flex items-center gap-2"
+                      disabled={submitting}
+                      className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                      ⏳ Hold Task
+                      {submitting ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          Memproses...
+                        </>
+                      ) : (
+                        '⏳ Hold Task'
+                      )}
                     </button>
                   ) : (
                     <button
                       type="submit"
-                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                      disabled={submitting}
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
-                      Buat Tugas
+                      {submitting ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          Memproses...
+                        </>
+                      ) : (
+                        'Buat Tugas'
+                      )}
                     </button>
                   )}
                 </div>
@@ -1571,6 +1758,9 @@ const Penugasan = () => {
                     Petugas IT Support
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Perangkat Ditugaskan
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Prioritas
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
@@ -1578,6 +1768,9 @@ const Penugasan = () => {
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Dibuat
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
+                    Selesai
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Durasi
@@ -1627,6 +1820,34 @@ const Penugasan = () => {
                         <span className="text-sm text-gray-400">-</span>
                       )}
                     </td>
+                    <td className="px-6 py-4">
+                      {task.assigned_devices && task.assigned_devices.length > 0 ? (
+                        <div className="space-y-1">
+                          {task.assigned_devices.map((ad, idx) => {
+                            const perangkatId =
+                              ad.perangkat?.id_perangkat ||
+                              (ad.perangkat && typeof ad.perangkat === 'object' && ad.perangkat.id_perangkat) ||
+                              '-';
+                            const perangkatName =
+                              ad.perangkat?.nama_perangkat ||
+                              (ad.perangkat && typeof ad.perangkat === 'object' && ad.perangkat.nama_perangkat) ||
+                              '';
+
+                            return (
+                              <p
+                                key={idx}
+                                className="text-xs font-mono font-semibold text-yellow-300 truncate"
+                                title={perangkatName ? `${perangkatId} - ${perangkatName}` : perangkatId}
+                              >
+                                {perangkatId}
+                              </p>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-sm text-gray-400">-</span>
+                      )}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {getPriorityBadge(task.priority)}
                     </td>
@@ -1637,9 +1858,27 @@ const Penugasan = () => {
                       {formatDate(task.created_at)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
+                      {task.completed_at ? (
+                        <span className="text-green-400">
+                          {formatDate(task.completed_at)}
+                        </span>
+                      ) : (
+                        '-'
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-300">
                       {task.status === 'completed' ? (
                         <span className="font-semibold text-green-400">
-                          {task.total_duration_minutes} menit
+                          {(() => {
+                            // Use stored duration if available, otherwise calculate from timestamps
+                            if (task.total_duration_minutes && task.total_duration_minutes > 0) {
+                              return formatDuration(task.total_duration_minutes);
+                            } else if (task.assigned_at && task.completed_at) {
+                              const calculated = calculateDuration(task.assigned_at, task.completed_at);
+                              return calculated && calculated > 0 ? formatDuration(calculated) : '0 menit';
+                            }
+                            return '0 menit';
+                          })()}
                         </span>
                       ) : (
                         '-'
