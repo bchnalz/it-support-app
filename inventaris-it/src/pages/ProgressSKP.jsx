@@ -58,14 +58,17 @@ const ProgressSKP = () => {
       if (targetsError) throw targetsError;
 
       // SPECIAL: Get inventarisasi count dari tabel perangkat
+      // Use total user entries in inventaris (match dashboard exactly - no year filter)
+      // Dashboard counts all entries per petugas, SKP should use same total count
       const { count: inventarisasiCount, error: inventarisasiError } = await supabase
         .from('perangkat')
         .select('*', { count: 'exact', head: true })
         .eq('petugas_id', user?.id)
-        .gte('tanggal_entry', `${currentYear}-01-01`)
-        .lte('tanggal_entry', `${currentYear}-12-31`);
+        .not('petugas_id', 'is', null);
       
-      if (inventarisasiError) console.error('Error counting inventarisasi:', inventarisasiError);
+      if (inventarisasiError) {
+        console.error('Error counting inventarisasi:', inventarisasiError);
+      }
 
       // Get completed tasks count from task_assignment_users (multi-user system)
       // Count tasks where user has completed_at set (more flexible than just status='completed')
