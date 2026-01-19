@@ -1,42 +1,51 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
-import Login from './pages/Login';
-import Register from './pages/Register';
-import Dashboard from './pages/Dashboard';
-import MasterJenisPerangkat from './pages/MasterJenisPerangkat';
-import MasterJenisBarang from './pages/MasterJenisBarang';
-import MasterLokasi from './pages/MasterLokasi';
-import StokOpnam from './pages/StokOpnam';
-import LogPenugasan from './pages/LogPenugasan';
-import ImportData from './pages/ImportData';
-import UserManagement from './pages/UserManagement';
+import ErrorBoundary from './components/ErrorBoundary';
+
+// Lazy load all pages for code splitting
+const Login = lazy(() => import('./pages/Login'));
+const Register = lazy(() => import('./pages/Register'));
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const MasterJenisPerangkat = lazy(() => import('./pages/MasterJenisPerangkat'));
+const MasterJenisBarang = lazy(() => import('./pages/MasterJenisBarang'));
+const MasterLokasi = lazy(() => import('./pages/MasterLokasi'));
+const StokOpnam = lazy(() => import('./pages/StokOpnam'));
+const LogPenugasan = lazy(() => import('./pages/LogPenugasan'));
+const ImportData = lazy(() => import('./pages/ImportData'));
+const UserManagement = lazy(() => import('./pages/UserManagement'));
 // Task Assignment System
-import MasterKategoriUser from './pages/MasterKategoriUser';
-import MasterSKP from './pages/MasterSKP';
-import UserCategoryAssignment from './pages/UserCategoryAssignment';
-import SKPCategoryAssignment from './pages/SKPCategoryAssignment';
-import PagePermissionAssignment from './pages/PagePermissionAssignment';
-import Penugasan from './pages/Penugasan';
-import DaftarTugas from './pages/DaftarTugas';
-import ProgressSKP from './pages/ProgressSKP';
+const MasterKategoriUser = lazy(() => import('./pages/MasterKategoriUser'));
+const MasterSKP = lazy(() => import('./pages/MasterSKP'));
+const UserCategoryAssignment = lazy(() => import('./pages/UserCategoryAssignment'));
+const SKPCategoryAssignment = lazy(() => import('./pages/SKPCategoryAssignment'));
+const PagePermissionAssignment = lazy(() => import('./pages/PagePermissionAssignment'));
+const Penugasan = lazy(() => import('./pages/Penugasan'));
+const DaftarTugas = lazy(() => import('./pages/DaftarTugas'));
+const ProgressSKP = lazy(() => import('./pages/ProgressSKP'));
+
+// Loading component
+const PageLoader = () => (
+  <div className="min-h-screen flex items-center justify-center bg-gray-50">
+    <div className="text-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+      <p className="mt-4 text-gray-600">Loading...</p>
+    </div>
+  </div>
+);
 
 const AppRoutes = () => {
   const { user, loading } = useAuth();
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
+    return <PageLoader />;
   }
 
   return (
-    <Routes>
+    <ErrorBoundary>
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
       {/* Public Routes */}
       <Route
         path="/login"
@@ -87,21 +96,21 @@ const AppRoutes = () => {
         }
       />
 
-      {/* Protected Routes - Stok Opnam (TEMPORARY: All roles) */}
+      {/* Protected Routes - Stok Opnam (IT Support and Administrator only) */}
       <Route
         path="/stok-opnam"
         element={
-          <ProtectedRoute allowedRoles={['administrator', 'it_support', 'helpdesk', 'user']}>
+          <ProtectedRoute allowedRoles={['administrator', 'it_support']}>
             <StokOpnam />
           </ProtectedRoute>
         }
       />
 
-      {/* Protected Routes - Import Data (TEMPORARY: All roles) */}
+      {/* Protected Routes - Import Data (IT Support and Administrator only) */}
       <Route
         path="/import-data"
         element={
-          <ProtectedRoute allowedRoles={['administrator', 'it_support', 'helpdesk', 'user']}>
+          <ProtectedRoute allowedRoles={['administrator', 'it_support']}>
             <ImportData />
           </ProtectedRoute>
         }
@@ -209,17 +218,21 @@ const AppRoutes = () => {
 
       {/* Catch all - redirect to home */}
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+        </Routes>
+      </Suspense>
+    </ErrorBoundary>
   );
 };
 
 function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   );
 }
 
