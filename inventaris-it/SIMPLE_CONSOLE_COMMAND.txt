@@ -1,0 +1,13 @@
+============================================
+SIMPLE WAY TO GET USER ID FROM CONSOLE
+============================================
+
+On the DaftarTugas page, you can now see the User ID displayed in a yellow debug box at the top.
+
+OR, type this in the browser console:
+
+__DEBUG_USER_ID__
+
+This will show the User ID directly.
+
+============================================

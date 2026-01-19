@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
 const Layout = ({ children }) => {
-  const { profile, signOut, accessiblePages, pagesLoaded } = useAuth();
+  const { profile, signOut, accessiblePages, pagesLoaded, refreshAccessiblePages } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -25,7 +25,28 @@ const Layout = ({ children }) => {
       fetchUnreadNotifications();
       fetchUserCategory();
       
-      const subscription = supabase
+      // Listen for page permission changes (if admin changes permissions)
+      // Note: This requires Supabase Realtime to be enabled for user_category_page_permissions table
+      const permissionSubscription = supabase
+        .channel(`page_permissions_${profile.user_category_id}`)
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'user_category_page_permissions',
+          filter: `user_category_id=eq.${profile.user_category_id}`
+        }, (payload) => {
+          console.log('[Layout] 🔄 Page permissions changed, refreshing menu...', payload);
+          // Refresh accessible pages when permissions change
+          if (refreshAccessiblePages) {
+            refreshAccessiblePages();
+          }
+        })
+        .subscribe();
+      
+      // Note: Removed automatic visibility refresh to avoid performance issues
+      // Users should refresh page manually or logout/login when permissions change
+      
+      const notificationSubscription = supabase
         .channel('notifications')
         .on('postgres_changes', {
           event: 'INSERT',
@@ -38,17 +59,16 @@ const Layout = ({ children }) => {
         .subscribe();
 
       return () => {
-        subscription.unsubscribe();
+        permissionSubscription.unsubscribe();
+        notificationSubscription.unsubscribe();
       };
     } else {
       // Reset when profile is not available
-      setAccessiblePages(new Set());
-      setPagesLoaded(false);
       setUserCategory(null);
       setUnreadCount(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profile?.id, profile?.role, profile?.user_category_id]);
+  }, [profile?.id, profile?.role, profile?.user_category_id, refreshAccessiblePages]);
 
   const fetchUserCategory = async () => {
     if (!profile?.id) return;
@@ -132,7 +152,7 @@ const Layout = ({ children }) => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
         </svg>
       ),
-      roles: ['administrator', 'it_support', 'helpdesk', 'user'] 
+      roles: ['administrator', 'it_support'] 
     },
     { 
       path: '/import-data', 
@@ -142,7 +162,7 @@ const Layout = ({ children }) => {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3 3m0 0l-3-3m3 3V8" />
         </svg>
       ),
-      roles: ['administrator', 'it_support', 'helpdesk', 'user'] 
+      roles: ['administrator', 'it_support'] 
     },
   ];
 
@@ -197,8 +217,14 @@ const Layout = ({ children }) => {
     }
     
     // Legacy role check (for backward compatibility)
+    // Also allow IT Support and Koordinator IT Support categories for Stok Opnam and Import Data
     if (item.roles && item.roles.length > 0) {
-      return item.roles.includes(profile?.role);
+      const hasRoleAccess = item.roles.includes(profile?.role);
+      // Special case: Allow IT Support and Koordinator IT Support categories for Stok Opnam and Import Data
+      if (!hasRoleAccess && (item.path === '/stok-opnam' || item.path === '/import-data')) {
+        return userCategory === 'IT Support' || userCategory === 'Koordinator IT Support';
+      }
+      return hasRoleAccess;
     }
     return false;
   });
@@ -227,14 +253,18 @@ const Layout = ({ children }) => {
     // Standard users: Check category-based page permissions (only after pages are loaded)
     if (profile?.role === 'standard') {
       if (!pagesLoaded) return false; // Don't show until loaded
-      return hasPageAccess(item.path);
+      const hasAccess = hasPageAccess(item.path);
+      if (!hasAccess) {
+        console.log(`[Layout] Filtering out "${item.label}" (${item.path}) - no page permission`);
+      }
+      return hasAccess;
     }
     
-    // Legacy role check
+    // Legacy role check (for backward compatibility with old roles)
     if (item.roles && item.roles.length > 0 && !item.roles.includes(profile?.role)) {
       return false;
     }
-    // Show based on user category for others (legacy)
+    // Show based on user category for others (legacy - only for non-standard roles)
     if (item.showFor && userCategory !== item.showFor) {
       return false;
     }

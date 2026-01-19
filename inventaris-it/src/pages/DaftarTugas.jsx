@@ -18,7 +18,9 @@ const DaftarTugas = () => {
   const timerIntervalRef = useRef({});
 
   useEffect(() => {
-    fetchTasks();
+    if (user?.id) {
+      fetchTasks();
+    }
     
     // Cleanup timers on unmount
     return () => {
@@ -26,7 +28,19 @@ const DaftarTugas = () => {
         if (interval) clearInterval(interval);
       });
     };
-  }, []);
+  }, [user?.id]);
+
+  // Force refresh when component mounts or user changes
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && user?.id) {
+        fetchTasks();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [user?.id]);
 
   useEffect(() => {
     // Update timers for tasks in progress or paused (use user_status)
@@ -38,16 +52,33 @@ const DaftarTugas = () => {
   }, [tasks]);
 
   const fetchTasks = async () => {
+    if (!user?.id) {
+      setTasks([]);
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       
       // Get tasks where current user is assigned
+      // Use .abortSignal to prevent caching
       const { data: userAssignments, error: assignError } = await supabase
         .from('task_assignment_users')
-        .select('task_assignment_id, status, work_duration_minutes')
-        .eq('user_id', user.id);
+        .select('task_assignment_id, status, work_duration_minutes, completed_at, user_id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
 
-      if (assignError) throw assignError;
+      // Verify user_id matches
+      const wrongUserIds = userAssignments?.filter(a => a.user_id !== user.id) || [];
+      if (wrongUserIds.length > 0) {
+        console.error('❌ MISMATCH: Found assignments with wrong user_id!', wrongUserIds);
+      }
+
+      if (assignError) {
+        console.error('[DaftarTugas] Error fetching user assignments:', assignError);
+        throw assignError;
+      }
 
       if (!userAssignments || userAssignments.length === 0) {
         setTasks([]);
@@ -58,17 +89,33 @@ const DaftarTugas = () => {
       const taskIds = userAssignments.map(a => a.task_assignment_id);
 
       // Get task details with related data
+      // IMPORTANT: Use explicit select to avoid any caching issues
       const { data: tasksData, error: tasksError } = await supabase
         .from('task_assignments')
         .select(`
-          *,
+          id,
+          task_number,
+          title,
+          description,
+          priority,
+          status,
+          skp_category_id,
+          assigned_by,
+          assigned_at,
+          completed_at,
+          total_duration_minutes,
+          created_at,
+          updated_at,
           skp_category:skp_categories(code, name),
           assigned_by_user:profiles!task_assignments_assigned_by_fkey(full_name, email)
         `)
         .in('id', taskIds)
         .order('created_at', { ascending: false });
 
-      if (tasksError) throw tasksError;
+      if (tasksError) {
+        console.error('[DaftarTugas] Error fetching task details:', tasksError);
+        throw tasksError;
+      }
 
       // Merge user status and duration
       const tasksWithUserData = tasksData.map(task => {
@@ -77,12 +124,15 @@ const DaftarTugas = () => {
           ...task,
           user_status: userAssignment?.status || 'pending',
           user_work_duration: userAssignment?.work_duration_minutes || 0,
+          // If task.completed_at is not set but user assignment is completed, use user's completed_at
+          completed_at: task.completed_at || userAssignment?.completed_at || null,
         };
       });
 
       setTasks(tasksWithUserData);
     } catch (error) {
-      console.error('Error fetching tasks:', error.message);
+      console.error('[DaftarTugas] Error fetching tasks:', error.message);
+      toast.error('❌ Gagal memuat tugas: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -278,6 +328,7 @@ const DaftarTugas = () => {
       setShowCompleteModal(false);
       setSelectedTask(null);
       setCompletionNotes('');
+      // Refresh to show updated status (trigger will update task_assignments.status)
       fetchTasks();
     } catch (error) {
       toast.error('❌ Gagal menyelesaikan tugas: ' + error.message);
@@ -286,16 +337,29 @@ const DaftarTugas = () => {
 
   const handleViewDetail = async (task) => {
     try {
-      // Fetch time logs
-      const { data: logs, error } = await supabase
-        .from('task_time_logs')
-        .select('*')
-        .eq('task_id', task.id)
-        .order('timestamp', { ascending: true });
+      // Fetch time logs and full task data with duration
+      const [logsResult, taskResult] = await Promise.all([
+        supabase
+          .from('task_time_logs')
+          .select('*')
+          .eq('task_id', task.id)
+          .order('timestamp', { ascending: true }),
+        supabase
+          .from('task_assignments')
+          .select('total_duration_minutes, assigned_at, completed_at, status')
+          .eq('id', task.id)
+          .single()
+      ]);
 
-      if (error) throw error;
+      if (logsResult.error) throw logsResult.error;
+      if (taskResult.error) throw taskResult.error;
 
-      setSelectedTask({ ...task, time_logs: logs });
+      // Merge the fetched task data with duration into the selected task
+      setSelectedTask({ 
+        ...task, 
+        ...taskResult.data,
+        time_logs: logsResult.data 
+      });
       setShowDetailModal(true);
     } catch (error) {
       toast.error('❌ Gagal memuat detail: ' + error.message);
@@ -397,11 +461,20 @@ const DaftarTugas = () => {
     <Layout>
       <div className="space-y-6">
         {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-white">Daftar Tugas</h1>
-          <p className="mt-1 text-sm text-gray-400">
-            Kelola tugas yang diberikan kepada Anda
-          </p>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-3xl font-bold text-white">Daftar Tugas</h1>
+            <p className="mt-1 text-sm text-gray-400">
+              Kelola tugas yang diberikan kepada Anda
+            </p>
+          </div>
+          <button
+            onClick={() => fetchTasks()}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition flex items-center gap-2"
+            title="Refresh tasks"
+          >
+            🔄 Refresh
+          </button>
         </div>
 
         {/* Detail Modal */}
@@ -441,10 +514,15 @@ const DaftarTugas = () => {
                   </div>
                 </div>
 
-                <div>
-                  <p className="text-sm text-gray-600">Dari (Helpdesk)</p>
-                  <p className="text-sm font-semibold">{selectedTask.assigned_by_user?.name}</p>
-                </div>
+                {selectedTask.assigned_by_user && (
+                  <div>
+                    <p className="text-sm text-gray-600">Dari (Penugas)</p>
+                    <p className="text-sm font-semibold">{selectedTask.assigned_by_user?.full_name || selectedTask.assigned_by_user?.name || selectedTask.assigned_by_user}</p>
+                    {selectedTask.assigned_by_user?.email && (
+                      <p className="text-xs text-gray-500">{selectedTask.assigned_by_user.email}</p>
+                    )}
+                  </div>
+                )}
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
@@ -481,7 +559,27 @@ const DaftarTugas = () => {
                 <div>
                   <p className="text-sm text-gray-600">Total Durasi</p>
                   <p className="text-lg font-bold text-green-600">
-                    {formatDuration(selectedTask.total_duration_minutes)}
+                    {(() => {
+                      // Use stored duration if available, otherwise calculate from timestamps
+                      if (selectedTask.total_duration_minutes && selectedTask.total_duration_minutes > 0) {
+                        return formatDuration(selectedTask.total_duration_minutes);
+                      } else if (selectedTask.assigned_at && selectedTask.completed_at) {
+                        // Calculate from assigned_at to completed_at
+                        const assignedTime = new Date(selectedTask.assigned_at);
+                        const completedTime = new Date(selectedTask.completed_at);
+                        const diffMs = completedTime.getTime() - assignedTime.getTime();
+                        const minutes = Math.floor(diffMs / 60000);
+                        return formatDuration(minutes > 0 ? minutes : 0);
+                      } else if (selectedTask.assigned_at && selectedTask.user_status === 'completed') {
+                        // Task is completed but duration not set, calculate from assigned_at to now
+                        const assignedTime = new Date(selectedTask.assigned_at);
+                        const now = new Date();
+                        const diffMs = now.getTime() - assignedTime.getTime();
+                        const minutes = Math.floor(diffMs / 60000);
+                        return formatDuration(minutes > 0 ? minutes : 0);
+                      }
+                      return '0 menit';
+                    })()}
                   </p>
                 </div>
 
@@ -642,8 +740,13 @@ const DaftarTugas = () => {
                   
                   <div className="flex flex-wrap gap-3 text-sm text-gray-300">
                     <span>📋 {task.skp_category?.name}</span>
-                    <span>👤 {task.assigned_by_user?.name}</span>
-                    <span>🕐 {formatDate(task.created_at)}</span>
+                    {task.assigned_by_user && (
+                      <span>👤 Dari: {task.assigned_by_user?.full_name || task.assigned_by_user?.name}</span>
+                    )}
+                    <span>🕐 Dibuat: {formatDate(task.created_at)}</span>
+                    {task.completed_at && (
+                      <span>✅ Selesai: {formatDate(task.completed_at)}</span>
+                    )}
                   </div>
 
                   {(task.user_status === 'in_progress' || task.user_status === 'paused') && (
@@ -657,7 +760,21 @@ const DaftarTugas = () => {
                   {task.user_status === 'completed' && (
                     <div className="mt-2">
                       <span className="text-lg font-bold text-green-400">
-                        ✅ Durasi: {formatDuration(task.user_work_duration)}
+                        ✅ Durasi: {(() => {
+                          // For completed tasks, use total_duration_minutes from task_assignments
+                          // Fallback to calculating from assigned_at to completed_at if not available
+                          if (task.total_duration_minutes && task.total_duration_minutes > 0) {
+                            return formatDuration(task.total_duration_minutes);
+                          } else if (task.assigned_at && task.completed_at) {
+                            const assignedTime = new Date(task.assigned_at);
+                            const completedTime = new Date(task.completed_at);
+                            const diffMs = completedTime.getTime() - assignedTime.getTime();
+                            const minutes = Math.floor(diffMs / 60000);
+                            return formatDuration(minutes > 0 ? minutes : 0);
+                          }
+                          // Last resort: use user_work_duration if total duration not available
+                          return formatDuration(task.user_work_duration || 0);
+                        })()}
                       </span>
                     </div>
                   )}

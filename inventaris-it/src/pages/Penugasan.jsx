@@ -62,12 +62,15 @@ const Penugasan = () => {
   }, [profile?.id]);
 
   useEffect(() => {
-    checkPermissions();
-    fetchTasks();
-    fetchHeldTasks();
-    fetchAvailableITSupport();
-    fetchSKPCategories();
-    fetchPerangkat(); // NEW: Fetch devices
+    // Only fetch on initial load, not on every profile/userCategory change
+    if (profile?.id) {
+      checkPermissions();
+      fetchTasks();
+      fetchHeldTasks();
+      fetchAvailableITSupport();
+      fetchSKPCategories();
+      fetchPerangkat();
+    }
     
     // Cleanup timers on unmount
     return () => {
@@ -75,7 +78,7 @@ const Penugasan = () => {
         if (interval) clearInterval(interval);
       });
     };
-  }, [profile, userCategory]);
+  }, []); // Empty dependency array - only run once on mount
 
   const fetchUserCategory = async () => {
     if (!profile?.id) return;
@@ -88,7 +91,9 @@ const Penugasan = () => {
         .single();
       
       if (error) throw error;
-      setUserCategory(data?.user_category?.name);
+      const categoryName = data?.user_category?.name;
+      console.log('[Penugasan] User category fetched:', categoryName);
+      setUserCategory(categoryName);
     } catch (error) {
       console.error('Error fetching user category:', error);
     }
@@ -131,19 +136,39 @@ const Penugasan = () => {
   useEffect(() => {
     // Filter SKP categories when IT Support is selected
     // Use first selected user for filtering
-    if (form.assigned_users && form.assigned_users.length > 0) {
-      fetchFilteredSKPCategories(form.assigned_users[0]);
-    } else {
-      setFilteredSkpCategories([]);
-    }
+    // Add debounce to prevent constant refreshing
+    const timeoutId = setTimeout(() => {
+      if (form.assigned_users && form.assigned_users.length > 0) {
+        fetchFilteredSKPCategories(form.assigned_users[0]);
+      } else {
+        setFilteredSkpCategories([]);
+      }
+    }, 300); // Wait 300ms after user stops selecting
+    
+    return () => clearTimeout(timeoutId);
   }, [form.assigned_users]);
+
+  // Debug: Log user category and profile (only once, not on every change)
+  useEffect(() => {
+    if (userCategory && profile) {
+      console.log('[Penugasan] Current userCategory:', userCategory);
+      console.log('[Penugasan] Current profile role:', profile?.role);
+    }
+  }, []); // Only log once on mount
 
   const fetchTasks = async () => {
     try {
       setLoading(true);
       
+      console.log('[Penugasan] Starting fetchTasks', {
+        user: user?.id,
+        profile: profile?.role,
+        userCategory: userCategory
+      });
+      
       // Fetch tasks with assigned users and devices
       // Administrators, Helpdesk, and Koordinator IT Support can see all tasks, other roles see only tasks they created
+      // Note: profiles join is optional - if RLS blocks it, we'll fetch separately
       let query = supabase
         .from('task_assignments')
         .select(`
@@ -151,8 +176,7 @@ const Penugasan = () => {
           total_duration_minutes,
           assigned_at,
           completed_at,
-          skp_category:skp_categories(code, name),
-          assigned_by_user:profiles!task_assignments_assigned_by_fkey(full_name)
+          skp_category:skp_categories(code, name)
         `)
         .neq('status', 'on_hold')
         .order('created_at', { ascending: false });
@@ -163,18 +187,73 @@ const Penugasan = () => {
       const isHelpdesk = userCategory === 'Helpdesk';
       const isKoordinatorITSupport = userCategory === 'Koordinator IT Support';
       
+      console.log('[Penugasan] User permissions:', {
+        isAdministrator,
+        isHelpdesk,
+        isKoordinatorITSupport,
+        willFilter: !isAdministrator && !isHelpdesk && !isKoordinatorITSupport
+      });
+      
       if (!isAdministrator && !isHelpdesk && !isKoordinatorITSupport) {
         query = query.eq('assigned_by', user.id);
       }
       
       const { data: tasksData, error: tasksError } = await query;
 
-      if (tasksError) throw tasksError;
+      console.log('[Penugasan] Query result:', {
+        tasksData: tasksData?.length || 0,
+        error: tasksError,
+        hasData: !!tasksData
+      });
+
+      if (tasksError) {
+        console.error('[Penugasan] Error fetching tasks:', {
+          message: tasksError.message,
+          details: tasksError.details,
+          hint: tasksError.hint,
+          code: tasksError.code
+        });
+        toast.error('❌ Gagal memuat tugas: ' + tasksError.message);
+        setTasks([]);
+        return;
+      }
+
+      if (!tasksData || tasksData.length === 0) {
+        console.log('[Penugasan] No tasks found');
+        setTasks([]);
+        setLoading(false);
+        return;
+      }
+
+      // Fetch assigned_by_user profiles separately (in case join fails due to RLS)
+      if (tasksData && tasksData.length > 0) {
+        const assignedByIds = [...new Set(tasksData.map(t => t.assigned_by).filter(Boolean))];
+        let assignedByMap = {};
+        
+        if (assignedByIds.length > 0) {
+          const { data: assignedByProfiles, error: assignedByError } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', assignedByIds);
+          
+          if (!assignedByError && assignedByProfiles) {
+            assignedByMap = assignedByProfiles.reduce((acc, p) => {
+              acc[p.id] = p.full_name;
+              return acc;
+            }, {});
+          }
+        }
+        
+        // Add assigned_by_user to each task
+        tasksData.forEach(task => {
+          task.assigned_by_user = assignedByMap[task.assigned_by] || null;
+        });
+      }
 
       // Fetch assigned users for each task
       const tasksWithUsers = await Promise.all(
         tasksData.map(async (task) => {
-          // Fetch assigned users + their profile (name/email) via relationship
+          // Fetch assigned users with profiles joined
           const { data: assignedUsersData, error: usersError } = await supabase
             .from('task_assignment_users')
             .select(`
@@ -184,11 +263,104 @@ const Penugasan = () => {
               acknowledged_at,
               started_at,
               completed_at,
-              profiles(full_name, email)
+              profiles(id, full_name, email)
             `)
             .eq('task_assignment_id', task.id);
 
-          if (usersError) throw usersError;
+          if (usersError) {
+            console.error(`[Penugasan] Error fetching assigned users for task ${task.id}:`, usersError);
+            throw usersError;
+          }
+          
+          // Transform the data to match expected structure
+          const assignedUsersWithProfiles = (assignedUsersData || []).map(au => {
+            // Handle profile data from join
+            let profileData = null;
+            if (au.profiles) {
+              // Supabase returns joined data as array or object
+              if (Array.isArray(au.profiles) && au.profiles.length > 0) {
+                profileData = {
+                  full_name: au.profiles[0].full_name,
+                  email: au.profiles[0].email
+                };
+              } else if (au.profiles && typeof au.profiles === 'object' && au.profiles.full_name) {
+                profileData = {
+                  full_name: au.profiles.full_name,
+                  email: au.profiles.email
+                };
+              }
+            }
+            
+            // If join didn't return profile, try fetching separately as fallback
+            if (!profileData) {
+              // This will be handled by a separate query if needed
+              // For now, return null and we'll fetch in batch below
+            }
+            
+            return {
+              ...au,
+              profiles: profileData
+            };
+          });
+          
+          // If any profiles are missing, fetch them separately
+          const missingUserIds = assignedUsersWithProfiles
+            .filter(au => !au.profiles)
+            .map(au => au.user_id);
+          
+          if (missingUserIds.length > 0) {
+            const { data: profilesData, error: profilesError } = await supabase
+              .from('profiles')
+              .select('id, full_name, email')
+              .in('id', missingUserIds);
+            
+            if (!profilesError && profilesData) {
+              const profilesMap = profilesData.reduce((acc, profile) => {
+                acc[profile.id] = {
+                  full_name: profile.full_name,
+                  email: profile.email
+                };
+                return acc;
+              }, {});
+              
+              // Update assigned users with fetched profiles
+              assignedUsersWithProfiles.forEach(au => {
+                if (!au.profiles && profilesMap[au.user_id]) {
+                  au.profiles = profilesMap[au.user_id];
+                }
+              });
+            } else if (profilesError) {
+              console.warn(`[Penugasan] Could not fetch some profiles (RLS may be blocking):`, {
+                message: profilesError.message,
+                code: profilesError.code,
+                hint: 'Run FIX_PROFILES_SELECT_POLICY_FOR_TASKS_WITH_IT_SUPPORT.sql to fix RLS policy'
+              });
+            }
+          }
+          
+          // Debug: Log the merge result
+          console.log(`[Penugasan] Task ${task.id} (${task.task_number || 'no-number'}) - After merge:`, {
+            assignedUsersData_length: assignedUsersData?.length || 0,
+            assignedUsersWithProfiles_length: assignedUsersWithProfiles.length,
+            assignedUsersWithProfiles: assignedUsersWithProfiles
+          });
+          
+          // Debug: Log assigned users data
+          if (assignedUsersWithProfiles.length > 0) {
+            console.log(`[Penugasan] Task ${task.id} assigned users:`, assignedUsersWithProfiles);
+            assignedUsersWithProfiles.forEach((au, idx) => {
+              console.log(`[Penugasan] User ${idx + 1}:`, {
+                user_id: au.user_id,
+                status: au.status,
+                profiles: au.profiles,
+                profiles_type: typeof au.profiles,
+                profiles_keys: au.profiles ? Object.keys(au.profiles) : 'N/A',
+                profiles_full_name: au.profiles?.full_name,
+              });
+            });
+          } else {
+            console.log(`[Penugasan] Task ${task.id} has no assigned users`);
+          }
           
           const { data: devicesData } = await supabase
             .from('task_assignment_perangkat')
@@ -198,15 +370,68 @@ const Penugasan = () => {
             `)
             .eq('task_assignment_id', task.id);
 
-          return {
+          // Debug: Check if task already has assigned_users that might conflict
+          if (task.assigned_users) {
+            console.warn(`[Penugasan] Task ${task.id} already has assigned_users property:`, task.assigned_users);
+          }
+          
+          // Debug: Verify assignedUsersWithProfiles before creating finalTask
+          console.log(`[Penugasan] Task ${task.id} - BEFORE creating finalTask:`, {
+            assignedUsersWithProfiles_length: assignedUsersWithProfiles.length,
+            assignedUsersWithProfiles: assignedUsersWithProfiles,
+            assignedUsersData_length: assignedUsersData?.length || 0
+          });
+          
+          const finalTask = {
             ...task,
-            assigned_users: assignedUsersData || [],
+            assigned_users: assignedUsersWithProfiles || [],
             assigned_devices: devicesData || [],
           };
+          
+          // Debug: Verify what we're returning
+          console.log(`[Penugasan] Task ${task.id} (${task.task_number || 'no-number'}) - Final return object:`, {
+            task_id: finalTask.id,
+            task_number: finalTask.task_number,
+            has_assigned_users: !!finalTask.assigned_users,
+            assigned_users_length: finalTask.assigned_users?.length || 0,
+            assigned_users: finalTask.assigned_users,
+            // Also log the source data to compare
+            source_assignedUsersData_length: assignedUsersData?.length || 0,
+            source_assignedUsersWithProfiles_length: assignedUsersWithProfiles.length,
+            // Check if they match
+            data_matches: finalTask.assigned_users.length === assignedUsersWithProfiles.length
+          });
+          
+          return finalTask;
         })
       );
 
+      console.log('[Penugasan] Setting tasks with users:', tasksWithUsers.length, 'tasks');
+      tasksWithUsers.forEach((task, idx) => {
+        console.log(`[Penugasan] Task ${idx + 1} (${task.task_number || task.id}):`, {
+          has_assigned_users: !!task.assigned_users,
+          assigned_users_length: task.assigned_users?.length || 0,
+          assigned_users: task.assigned_users,
+        });
+        if (task.assigned_users && task.assigned_users.length > 0) {
+          console.log(`[Penugasan] Task ${idx + 1} (${task.task_number}) has ${task.assigned_users.length} assigned users:`, 
+            task.assigned_users.map(au => ({
+              user_id: au.user_id,
+              has_profile: !!au.profiles,
+              profile_name: au.profiles?.full_name || 'NO PROFILE',
+              profiles_object: au.profiles
+            }))
+          );
+        } else {
+          console.log(`[Penugasan] Task ${idx + 1} (${task.task_number || task.id}) has NO assigned users`);
+        }
+      });
+      
       setTasks(tasksWithUsers);
+      
+      if (tasksWithUsers.length === 0) {
+        console.log('[Penugasan] No tasks to display');
+      }
     } catch (error) {
       console.error('Error fetching tasks:', error.message);
       toast.error('❌ Gagal memuat tugas: ' + error.message);
@@ -1709,6 +1934,21 @@ const Penugasan = () => {
           </div>
         </div>
 
+        {/* Header with Refresh Button */}
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-2xl font-bold text-gray-900">Daftar Penugasan</h2>
+          <button
+            onClick={() => {
+              fetchTasks();
+              fetchHeldTasks();
+            }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
+            title="Refresh data"
+          >
+            🔄 Refresh
+          </button>
+        </div>
+
         {/* Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <div className="bg-gradient-to-br from-orange-400 to-orange-600 rounded-lg shadow p-4 text-white">
@@ -1754,8 +1994,8 @@ const Penugasan = () => {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Judul & SKP
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
-                    Petugas IT Support
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider min-w-[150px] whitespace-nowrap">
+                    👤 Petugas IT Support
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">
                     Perangkat Ditugaskan
@@ -1800,18 +2040,42 @@ const Penugasan = () => {
                         </p>
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-6 py-4 min-w-[150px]">
+                      {(() => {
+                        // Debug: Log what we have for this task
+                        if (task.task_number) {
+                          console.log(`[Penugasan] Rendering task ${task.task_number}:`, {
+                            task_id: task.id,
+                            has_assigned_users: !!task.assigned_users,
+                            assigned_users_length: task.assigned_users?.length || 0,
+                            assigned_users: task.assigned_users,
+                            // Check if this task should have users by querying directly
+                            will_check_db: true
+                          });
+                        }
+                        return null;
+                      })()}
                       {task.assigned_users && task.assigned_users.length > 0 ? (
                         <div className="space-y-1">
                           {task.assigned_users.map((au, idx) => {
-                            // Handle different possible data structures from Supabase
-                            // Supabase returns nested data as: { user_id, status, profiles: { full_name, email } }
+                            // Direct access to profiles.full_name
                             const userName = au.profiles?.full_name || 
-                                           (au.profiles && typeof au.profiles === 'object' && au.profiles.full_name) ||
-                                           'Unknown';
+                                          au.profiles?.email || 
+                                          (au.user_id ? `User ${au.user_id.substring(0, 8)}...` : 'Unknown');
+                            
+                            // Debug: Log what we're rendering
+                            console.log(`[Penugasan] Rendering user ${idx + 1} for task ${task.task_number}:`, {
+                              user_id: au.user_id,
+                              userName: userName,
+                              has_profiles: !!au.profiles,
+                              profiles_full_name: au.profiles?.full_name,
+                              profiles_email: au.profiles?.email,
+                              full_au_object: au
+                            });
+                            
                             return (
-                              <p key={idx} className="text-sm font-medium text-white">
-                                {userName}
+                              <p key={idx} className="text-sm font-medium text-white" title={au.user_id || ''}>
+                                {userName || 'FALLBACK_TEXT'}
                               </p>
                             );
                           })}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { supabase } from '../lib/supabase';
 
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   const { user, profile, loading, accessiblePages, pagesLoaded, signOut } = useAuth();
@@ -8,6 +9,35 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
   const navigate = useNavigate();
   const [hasAccess, setHasAccess] = useState(null);
   const [checkingAccess, setCheckingAccess] = useState(true);
+  const [userCategory, setUserCategory] = useState(null);
+
+  useEffect(() => {
+    // Fetch user category to check for Koordinator IT Support
+    const fetchUserCategory = async () => {
+      if (!profile?.id) {
+        setUserCategory(null);
+        return;
+      }
+      
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('user_category:user_categories!user_category_id(name)')
+          .eq('id', profile.id)
+          .single();
+        
+        if (error) throw error;
+        setUserCategory(data?.user_category?.name);
+      } catch (error) {
+        console.error('Error fetching user category:', error);
+        setUserCategory(null);
+      }
+    };
+
+    if (profile?.id) {
+      fetchUserCategory();
+    }
+  }, [profile?.id]);
 
   useEffect(() => {
     // Reset access state when dependencies change to prevent stale state
@@ -15,7 +45,7 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
     setCheckingAccess(true);
     checkAccess();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, profile, loading, location.pathname, accessiblePages, pagesLoaded]);
+  }, [user, profile, loading, location.pathname, accessiblePages, pagesLoaded, userCategory]);
 
   const checkAccess = async () => {
     // Always start with checking state
@@ -72,8 +102,17 @@ const ProtectedRoute = ({ children, allowedRoles = [] }) => {
 
     // Legacy role-based check (for backward compatibility - only for non-standard roles)
     // This handles any old roles that haven't been migrated yet
-    if (allowedRoles.length > 0 && !allowedRoles.includes(profile.role)) {
-      console.log(`[ProtectedRoute] Legacy role check failed: role=${profile.role}, allowedRoles=${allowedRoles.join(',')}`);
+    // Also check for IT Support and Koordinator IT Support categories
+    const isITSupportCategory = userCategory === 'IT Support';
+    const isKoordinatorITSupport = userCategory === 'Koordinator IT Support';
+    const hasRoleAccess = allowedRoles.length === 0 || allowedRoles.includes(profile.role);
+    
+    // For routes that allow it_support role, also allow IT Support category
+    const allowsITSupport = allowedRoles.includes('it_support');
+    const hasCategoryAccess = allowsITSupport && (isITSupportCategory || isKoordinatorITSupport);
+    
+    if (allowedRoles.length > 0 && !hasRoleAccess && !hasCategoryAccess) {
+      console.log(`[ProtectedRoute] Legacy role check failed: role=${profile.role}, category=${userCategory}, allowedRoles=${allowedRoles.join(',')}`);
       setHasAccess(false);
       setCheckingAccess(false);
       return;

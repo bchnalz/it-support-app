@@ -118,6 +118,10 @@ const PagePermissionAssignment = () => {
           ...prev,
           [selectedCategory]: newSet,
         }));
+        
+        toast.success(
+          `✅ Akses ke "${pageRoute}" dihapus. Pengguna perlu refresh halaman atau logout/login untuk melihat perubahan.`
+        );
       } else {
         // Grant access
         const { error } = await supabase
@@ -140,6 +144,10 @@ const PagePermissionAssignment = () => {
           ...prev,
           [selectedCategory]: newSet,
         }));
+        
+        toast.success(
+          `✅ Akses ke "${pageRoute}" diberikan. Pengguna perlu refresh halaman atau logout/login untuk melihat perubahan.`
+        );
       }
     } catch (error) {
       console.error('Error toggling page:', error);

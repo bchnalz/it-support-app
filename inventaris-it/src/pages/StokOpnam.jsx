@@ -15,6 +15,7 @@ const StokOpnam = () => {
   const [jenisPerangkatList, setJenisPerangkatList] = useState([]);
   const [jenisBarangList, setJenisBarangList] = useState([]);
   const [lokasiList, setLokasiList] = useState([]);
+  const [userCategory, setUserCategory] = useState(null);
   // Don't block initial render; load data after first paint
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -99,6 +100,30 @@ const StokOpnam = () => {
 
     return cancel;
   }, []);
+
+  useEffect(() => {
+    // Fetch user category to check for Koordinator IT Support
+    const fetchUserCategory = async () => {
+      if (!profile?.id) return;
+      
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('user_category:user_categories!user_category_id(name)')
+          .eq('id', profile.id)
+          .single();
+        
+        if (error) throw error;
+        setUserCategory(data?.user_category?.name);
+      } catch (error) {
+        console.error('Error fetching user category:', error);
+      }
+    };
+
+    if (profile?.id) {
+      fetchUserCategory();
+    }
+  }, [profile?.id]);
 
   const fetchMasterData = async () => {
     try {
@@ -723,6 +748,18 @@ const StokOpnam = () => {
     );
   };
 
+  // Check if user can edit (IT Support role/category, Administrator, or Koordinator IT Support)
+  const canEdit = 
+    profile?.role === 'it_support' || 
+    profile?.role === 'administrator' || 
+    userCategory === 'IT Support' ||
+    userCategory === 'Koordinator IT Support';
+  
+  // Check if user can perform mutasi (Administrator or Koordinator IT Support only)
+  const canMutasi = 
+    profile?.role === 'administrator' || 
+    userCategory === 'Koordinator IT Support';
+
   return (
     <Layout>
       <div className="space-y-6">
@@ -734,15 +771,17 @@ const StokOpnam = () => {
               Kelola dan update data inventaris perangkat IT
             </p>
           </div>
-          <button
-            onClick={() => {
-              setShowAddForm(true);
-              setAddStep(1);
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
-          >
-            + Tambah Perangkat
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => {
+                setShowAddForm(true);
+                setAddStep(1);
+              }}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
+            >
+              + Tambah Perangkat
+            </button>
+          )}
         </div>
 
         {/* 2-STEP ADD FORM MODAL */}
@@ -2096,61 +2135,61 @@ const StokOpnam = () => {
             <table className="min-w-full divide-y divide-gray-700">
               <thead className="bg-gray-900">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase">
                     ID Perangkat
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
+                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('nama_perangkat')}
                   >
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center justify-center gap-1">
                       <span>Nama Perangkat</span>
                       <SortIcon column="nama_perangkat" />
                     </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase">
                     ID Remote Access
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
+                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('tanggal_entry')}
                   >
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center justify-center gap-1">
                       <span>Tanggal Entry</span>
                       <SortIcon column="tanggal_entry" />
                     </div>
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
+                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('petugas')}
                   >
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center justify-center gap-1">
                       <span>Petugas</span>
                       <SortIcon column="petugas" />
                     </div>
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
+                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('jenis_perangkat')}
                   >
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center justify-center gap-1">
                       <span>Jenis Perangkat</span>
                       <SortIcon column="jenis_perangkat" />
                     </div>
                   </th>
                   <th 
-                    className="px-4 py-3 text-left text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
+                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
                     onClick={() => handleSort('jenis_barang')}
                   >
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center justify-center gap-1">
                       <span>Jenis Barang</span>
                       <SortIcon column="jenis_barang" />
                     </div>
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase">
                     Status
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-white uppercase">
+                  <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase">
                     Aksi
                   </th>
                 </tr>
@@ -2158,7 +2197,7 @@ const StokOpnam = () => {
               <tbody className="bg-gray-800 divide-y divide-gray-700">
                 {paginatedPerangkat.map((item) => (
                   <tr key={item.id} className="group hover:bg-gray-700 transition-colors">
-                    <td className="px-4 py-3 text-sm font-mono font-bold text-[#ffae00]">
+                    <td className="px-4 py-3 text-center text-sm font-mono font-bold text-[#ffae00]">
                       <button
                         onClick={() => handleViewDetail(item)}
                         className="hover:underline cursor-pointer"
@@ -2167,23 +2206,23 @@ const StokOpnam = () => {
                         {item.id_perangkat}
                       </button>
                     </td>
-                    <td className="px-4 py-3 text-sm text-white">{item.nama_perangkat}</td>
-                    <td className="px-4 py-3 text-sm text-white">
+                    <td className="px-4 py-3 text-center text-sm text-white">{item.nama_perangkat}</td>
+                    <td className="px-4 py-3 text-center text-sm text-white">
                       {item.id_remoteaccess || '-'}
                     </td>
-                    <td className="px-4 py-3 text-xs text-white">
+                    <td className="px-4 py-3 text-center text-xs text-white">
                       {formatDate(item.tanggal_entry)}
                     </td>
-                    <td className="px-4 py-3 text-sm text-white">
+                    <td className="px-4 py-3 text-center text-sm text-white">
                       {item.petugas?.full_name || '-'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-white">
+                    <td className="px-4 py-3 text-center text-sm text-white">
                       {item.jenis_perangkat?.nama || '-'}
                     </td>
-                    <td className="px-4 py-3 text-sm text-white">
+                    <td className="px-4 py-3 text-center text-sm text-white">
                       {item.jenis_barang?.nama || '-'}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3 text-center">
                       <span className={`text-sm font-medium ${
                         item.status_perangkat === 'layak' 
                           ? 'text-green-500' 
@@ -2192,8 +2231,8 @@ const StokOpnam = () => {
                         {item.status_perangkat}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm">
-                      <div className="flex gap-2">
+                    <td className="px-4 py-3 text-center text-sm">
+                      <div className="flex gap-2 justify-center">
                         <button
                           onClick={() => handleViewDetail(item)}
                           className="text-blue-400 hover:text-blue-300"
@@ -2201,20 +2240,24 @@ const StokOpnam = () => {
                         >
                           <MagnifyingGlassPlusIcon className="w-5 h-5" />
                         </button>
-                        <button
-                          onClick={() => handleEdit(item)}
-                          className="text-cyan-400 hover:text-cyan-300"
-                          title="Edit perangkat"
-                        >
-                          <PencilSquareIcon className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => handleOpenMutasi(item)}
-                          className="text-green-400 hover:text-green-300"
-                          title="Mutasi perangkat"
-                        >
-                          <ArrowsRightLeftIcon className="w-5 h-5" />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleEdit(item)}
+                            className="text-cyan-400 hover:text-cyan-300"
+                            title="Edit perangkat"
+                          >
+                            <PencilSquareIcon className="w-5 h-5" />
+                          </button>
+                        )}
+                        {canMutasi && (
+                          <button
+                            onClick={() => handleOpenMutasi(item)}
+                            className="text-green-400 hover:text-green-300"
+                            title="Mutasi perangkat"
+                          >
+                            <ArrowsRightLeftIcon className="w-5 h-5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -2227,63 +2270,55 @@ const StokOpnam = () => {
           <div className="lg:hidden divide-y divide-gray-700">
             {paginatedPerangkat.map((item) => (
               <div key={item.id} className="p-4 hover:bg-gray-700 transition-colors">
-                <div className="space-y-2">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <button
-                        onClick={() => handleViewDetail(item)}
-                        className="text-sm font-mono font-bold text-[#ffae00] bg-gray-900 px-2 py-1 rounded hover:bg-gray-700 transition mb-2"
-                      >
-                        {item.id_perangkat}
-                      </button>
-                      <p className="font-bold text-white mt-2">{item.nama_perangkat}</p>
-                      <div className="mt-2 space-y-1 text-sm text-white">
-                        <p>
-                          <span className="font-medium">Remote:</span>{' '}
-                          {item.id_remoteaccess || '-'}
-                        </p>
-                        <p>
-                          <span className="font-medium">Tanggal:</span>{' '}
-                          {formatDate(item.tanggal_entry)}
-                        </p>
-                        <p>
-                          <span className="font-medium">Petugas:</span>{' '}
-                          {item.petugas?.full_name || '-'}
-                        </p>
-                        <p>
-                          <span className="font-medium">Jenis:</span>{' '}
-                          {item.jenis_perangkat?.nama || '-'} |{' '}
-                          {item.jenis_barang?.nama || '-'}
-                        </p>
-                      </div>
-                    </div>
-                    <span className={`text-sm font-medium ${
-                      item.status_perangkat === 'layak' 
-                        ? 'text-green-500' 
-                        : 'text-red-400'
-                    }`}>
-                      {item.status_perangkat}
-                    </span>
-                  </div>
-                  <div className="flex gap-2 mt-3">
+                <div className="flex justify-between items-start gap-3">
+                  <div className="flex-1 space-y-2">
                     <button
                       onClick={() => handleViewDetail(item)}
-                      className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition text-sm flex items-center justify-center gap-1"
+                      className="text-sm font-mono font-bold text-[#ffae00] bg-gray-900 px-2 py-1 rounded hover:bg-gray-700 transition"
                     >
-                      <MagnifyingGlassPlusIcon className="w-4 h-4" /> View
+                      {item.id_perangkat}
                     </button>
+                    <div className="space-y-1 text-sm text-white">
+                      <p>
+                        <span className="font-medium">Tanggal:</span>{' '}
+                        {formatDate(item.tanggal_entry)}
+                      </p>
+                      <p>
+                        <span className="font-medium">Lokasi:</span>{' '}
+                        {item.lokasi?.nama || item.lokasi?.kode || '-'}
+                      </p>
+                      <p>
+                        <span className="font-medium">Petugas:</span>{' '}
+                        {item.petugas?.full_name || '-'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2 flex-shrink-0">
                     <button
-                      onClick={() => handleEdit(item)}
-                      className="flex-1 bg-cyan-600 text-white px-4 py-2 rounded-lg hover:bg-cyan-700 transition text-sm flex items-center justify-center gap-1"
+                      onClick={() => handleViewDetail(item)}
+                      className="text-blue-400 hover:text-blue-300 transition"
+                      title="View detail"
                     >
-                      <PencilSquareIcon className="w-4 h-4" /> Edit
+                      <MagnifyingGlassPlusIcon className="w-5 h-5" />
                     </button>
-                    <button
-                      onClick={() => handleOpenMutasi(item)}
-                      className="flex-1 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition text-sm flex items-center justify-center gap-1"
-                    >
-                      <ArrowsRightLeftIcon className="w-4 h-4" /> Mutasi
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => handleEdit(item)}
+                        className="text-cyan-400 hover:text-cyan-300 transition"
+                        title="Edit perangkat"
+                      >
+                        <PencilSquareIcon className="w-5 h-5" />
+                      </button>
+                    )}
+                    {canMutasi && (
+                      <button
+                        onClick={() => handleOpenMutasi(item)}
+                        className="text-green-400 hover:text-green-300 transition"
+                        title="Mutasi perangkat"
+                      >
+                        <ArrowsRightLeftIcon className="w-5 h-5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

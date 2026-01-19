@@ -11,6 +11,7 @@ const SKPCategoryAssignment = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
+  const [skpSearch, setSkpSearch] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -197,6 +198,16 @@ const SKPCategoryAssignment = () => {
   );
 
   const currentAssignments = assignments[selectedCategory] || new Set();
+  const normalizedSkpSearch = skpSearch.trim().toLowerCase();
+  const filteredSkpCategories = normalizedSkpSearch
+    ? skpCategories.filter((skp) => {
+        const name = (skp.name || '').toLowerCase();
+        const desc = (skp.description || '').toLowerCase();
+        return (
+          name.includes(normalizedSkpSearch) || desc.includes(normalizedSkpSearch)
+        );
+      })
+    : skpCategories;
 
   if (loading) {
     return (
@@ -277,6 +288,9 @@ const SKPCategoryAssignment = () => {
                   <p className="text-sm text-gray-400 mt-1">
                     {currentAssignments.size} dari {skpCategories.length} SKP dipilih
                   </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Menampilkan {filteredSkpCategories.length} dari {skpCategories.length} SKP
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -309,8 +323,40 @@ const SKPCategoryAssignment = () => {
                   <p className="text-sm mt-2">Buat SKP di Master SKP</p>
                 </div>
               ) : (
-                <div className="space-y-2 max-h-[600px] overflow-y-auto">
-                  {skpCategories.map((skp) => {
+                <div className="space-y-3">
+                  {/* Search */}
+                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+                    <div className="relative flex-1">
+                      <input
+                        type="text"
+                        value={skpSearch}
+                        onChange={(e) => setSkpSearch(e.target.value)}
+                        placeholder="Cari SKP... (nama / deskripsi)"
+                        className="w-full px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-gray-100 placeholder-gray-500 focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+                      />
+                      {skpSearch.trim() !== '' && (
+                        <button
+                          type="button"
+                          onClick={() => setSkpSearch('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 px-2 py-1 text-xs rounded-md bg-gray-700 hover:bg-gray-600 text-gray-200 transition"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* List */}
+                  <div className="space-y-2 max-h-[560px] overflow-y-auto">
+                    {filteredSkpCategories.length === 0 ? (
+                      <div className="text-center py-10 text-gray-400">
+                        <p className="text-lg">SKP tidak ditemukan</p>
+                        <p className="text-sm mt-1">
+                          Coba kata kunci lain, atau klik <span className="font-semibold">Clear</span>.
+                        </p>
+                      </div>
+                    ) : (
+                      filteredSkpCategories.map((skp) => {
                     const isAssigned = currentAssignments.has(skp.id);
                     return (
                       <div
@@ -340,7 +386,9 @@ const SKPCategoryAssignment = () => {
                         </button>
                       </div>
                     );
-                  })}
+                      })
+                    )}
+                  </div>
                 </div>
               )}
             </div>

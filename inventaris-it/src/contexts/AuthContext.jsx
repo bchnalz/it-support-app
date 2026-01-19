@@ -147,6 +147,15 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Function to refresh accessible pages (can be called after permission changes)
+  const refreshAccessiblePages = async () => {
+    if (profile?.role === 'standard' && profile?.user_category_id) {
+      console.log('[AuthContext] 🔄 Refreshing accessible pages...');
+      setPagesLoaded(false);
+      await fetchAccessiblePages(profile);
+    }
+  };
+
   const signIn = async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -189,6 +198,7 @@ export const AuthProvider = ({ children }) => {
     signIn,
     signUp,
     signOut,
+    refreshAccessiblePages,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
