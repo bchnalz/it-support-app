@@ -31,9 +31,9 @@ const StokOpnam = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   
-  // Sorting state
-  const [sortColumn, setSortColumn] = useState(null);
-  const [sortDirection, setSortDirection] = useState('asc'); // 'asc' or 'desc'
+  // Sorting state - default to id_perangkat (sequence number) descending
+  const [sortColumn, setSortColumn] = useState('id_perangkat');
+  const [sortDirection, setSortDirection] = useState('desc'); // 'asc' or 'desc' - desc shows highest first
   
   // Detail view state
   const [viewingDetail, setViewingDetail] = useState(null);
@@ -207,8 +207,8 @@ const StokOpnam = () => {
           petugas:profiles!perangkat_petugas_id_fkey(id, full_name),
           perangkat_storage(id, jenis_storage, kapasitas)
         `)
-        .order('tanggal_entry', { ascending: false })
         .limit(1000); // Reasonable limit to prevent slow queries
+        // Note: Sorting is done in frontend by sequence number (last 4 digits of id_perangkat)
 
       if (error) throw error;
 
@@ -501,6 +501,14 @@ const StokOpnam = () => {
     let aValue, bValue;
 
     switch (sortColumn) {
+      case 'id_perangkat':
+        // Extract sequence number (last 4 digits) from id_perangkat
+        // Format: XXX.YYYY.M.ZZZZ where ZZZZ is the sequence
+        const aSeq = a.id_perangkat ? parseInt(a.id_perangkat.split('.').pop() || '0', 10) : 0;
+        const bSeq = b.id_perangkat ? parseInt(b.id_perangkat.split('.').pop() || '0', 10) : 0;
+        aValue = aSeq;
+        bValue = bSeq;
+        break;
       case 'nama_perangkat':
         aValue = a.nama_perangkat || '';
         bValue = b.nama_perangkat || '';
@@ -2135,8 +2143,14 @@ const StokOpnam = () => {
             <table className="min-w-full divide-y divide-gray-700">
               <thead className="bg-gray-900">
                 <tr>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase">
-                    ID Perangkat
+                  <th 
+                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
+                    onClick={() => handleSort('id_perangkat')}
+                  >
+                    <div className="flex items-center justify-center gap-1">
+                      <span>ID Perangkat</span>
+                      <SortIcon column="id_perangkat" />
+                    </div>
                   </th>
                   <th 
                     className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
