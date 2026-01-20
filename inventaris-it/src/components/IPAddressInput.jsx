@@ -125,11 +125,12 @@ export default function IPAddressInput({ value, onChange, placeholder = '...' })
             <input
               ref={inputRefs[index]}
               type="text"
+              inputMode="numeric"
               value={segment}
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
               onPaste={index === 0 ? handlePaste : undefined}
-              className="w-12 text-center bg-transparent border-none outline-none text-sm font-mono"
+              className="w-12 text-center bg-transparent border-none outline-none text-base font-mono"
               placeholder={placeholder.split('.')[index]}
               maxLength={3}
             />

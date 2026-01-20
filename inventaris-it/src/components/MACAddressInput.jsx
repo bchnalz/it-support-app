@@ -138,7 +138,7 @@ export default function MACAddressInput({ value, onChange, placeholder = '00:00:
               onChange={(e) => handleChange(index, e.target.value)}
               onKeyDown={(e) => handleKeyDown(index, e)}
               onPaste={index === 0 ? handlePaste : undefined}
-              className="w-8 text-center bg-transparent border-none outline-none text-sm font-mono uppercase"
+              className="w-8 text-center bg-transparent border-none outline-none text-base font-mono uppercase"
               placeholder={placeholder.split(':')[index]}
               maxLength={2}
             />

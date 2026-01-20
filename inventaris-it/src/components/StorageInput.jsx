@@ -58,46 +58,66 @@ export default function StorageInput({ value = [], onChange }) {
     <div className="space-y-3">
       {/* Storage entries */}
       {storages.map((storage, index) => (
-        <div key={index} className="flex items-center gap-2">
-          {/* Index number */}
-          <div className="w-8 h-10 flex items-center justify-center bg-gray-100 rounded text-sm font-semibold text-gray-600">
-            {index + 1}
+        <div key={index} className="space-y-2 sm:space-y-0">
+          {/* Row 1: Index, Storage Type, Remove Button (mobile: stacked, desktop: horizontal) */}
+          <div className="flex items-center gap-2">
+            {/* Index number */}
+            <div className="w-8 h-10 flex items-center justify-center bg-gray-100 rounded text-sm font-semibold text-gray-600">
+              {index + 1}
+            </div>
+
+            {/* Jenis Storage dropdown */}
+            <select
+              value={storage.jenis_storage}
+              onChange={(e) => handleUpdate(index, 'jenis_storage', e.target.value)}
+              className="w-20 sm:w-32 px-2 sm:px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+            >
+              <option value="SSD">SSD</option>
+              <option value="HDD">HDD</option>
+              <option value="NVMe">NVMe</option>
+            </select>
+
+            {/* Desktop: Kapasitas input inline */}
+            <div className="hidden sm:flex sm:w-24 sm:relative sm:items-center">
+              <input
+                type="text"
+                value={storage.kapasitas}
+                onChange={(e) => handleUpdate(index, 'kapasitas', e.target.value)}
+                placeholder="256"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm pr-10"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
+                GB
+              </span>
+            </div>
+
+            {/* Remove button */}
+            <button
+              type="button"
+              onClick={() => handleRemove(index)}
+              className="ml-auto sm:ml-0 w-8 h-8 flex items-center justify-center bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition text-lg font-medium"
+              title="Hapus storage"
+            >
+              ×
+            </button>
           </div>
 
-          {/* Jenis Storage dropdown */}
-          <select
-            value={storage.jenis_storage}
-            onChange={(e) => handleUpdate(index, 'jenis_storage', e.target.value)}
-            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
-          >
-            <option value="SSD">SSD</option>
-            <option value="HDD">HDD</option>
-            <option value="NVMe">NVMe</option>
-          </select>
-
-          {/* Kapasitas input */}
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              value={storage.kapasitas}
-              onChange={(e) => handleUpdate(index, 'kapasitas', e.target.value)}
-              placeholder="256"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm pr-10"
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
-              GB
-            </span>
+          {/* Row 2: Kapasitas input (mobile only) */}
+          <div className="flex items-center gap-2 sm:hidden">
+            <div className="w-8"></div>
+            <div className="w-24 relative">
+              <input
+                type="text"
+                value={storage.kapasitas}
+                onChange={(e) => handleUpdate(index, 'kapasitas', e.target.value)}
+                placeholder="256"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm pr-10"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">
+                GB
+              </span>
+            </div>
           </div>
-
-          {/* Remove button */}
-          <button
-            type="button"
-            onClick={() => handleRemove(index)}
-            className="px-3 py-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition text-sm font-medium"
-            title="Hapus storage"
-          >
-            × Hapus
-          </button>
         </div>
       ))}
 
