@@ -28,6 +28,7 @@ const AVAILABLE_PAGES = [
   { route: '/master-jenis-barang', label: 'Master Jenis Barang', description: 'Kelola jenis barang' },
   { route: '/master-lokasi', label: 'Master Lokasi', description: 'Kelola lokasi' },
   { route: '/stok-opnam', label: 'Stok Opnam', description: 'Kelola stok opnam' },
+  { route: '/check-dataku', label: 'Check Dataku', description: 'Lihat dan kelola data inventaris perangkat yang Anda input' },
   { route: '/import-data', label: 'Import Data', description: 'Import data perangkat' },
   { route: '/log-penugasan', label: 'Log Penugasan', description: 'Log penugasan perangkat' },
   { route: '/log-penugasan/penugasan', label: 'Penugasan', description: 'Buat dan kelola tugas' },

@@ -12,6 +12,7 @@ const MasterJenisPerangkat = lazy(() => import('./pages/MasterJenisPerangkat'));
 const MasterJenisBarang = lazy(() => import('./pages/MasterJenisBarang'));
 const MasterLokasi = lazy(() => import('./pages/MasterLokasi'));
 const StokOpnam = lazy(() => import('./pages/StokOpnam'));
+const CheckDataku = lazy(() => import('./pages/CheckDataku'));
 const LogPenugasan = lazy(() => import('./pages/LogPenugasan'));
 const ImportData = lazy(() => import('./pages/ImportData'));
 const UserManagement = lazy(() => import('./pages/UserManagement'));
@@ -102,6 +103,16 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute allowedRoles={['administrator', 'it_support']}>
             <StokOpnam />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - Check Dataku (All authenticated users - shows only their own data) */}
+      <Route
+        path="/check-dataku"
+        element={
+          <ProtectedRoute>
+            <CheckDataku />
           </ProtectedRoute>
         }
       />
