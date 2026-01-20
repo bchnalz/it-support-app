@@ -238,31 +238,34 @@ const ProgressSKP = () => {
                 const badgeColor = percentage > 0 ? '#ff5e00' : '#6b7280';
 
                 return (
-                  <div key={skp.skp_category_id} className="flex items-center gap-3">
-                    {/* Number Badge */}
-                    <div 
-                      className="w-6 h-6 rounded flex items-center justify-center font-bold text-white text-xs flex-shrink-0"
-                      style={{ backgroundColor: badgeColor }}
-                    >
-                      {index + 1}
-                    </div>
-                    
-                    {/* SKP Name & Badge */}
-                    <div className="min-w-0 flex-shrink-0" style={{ width: '200px' }}>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold text-white truncate">{skp.skp_name}</h3>
-                        {isComplete && (
-                          <span style={{ color: '#ff5e00' }} className="text-xs">✓</span>
+                  <div key={skp.skp_category_id} className="flex flex-col md:flex-row md:items-center gap-3">
+                    {/* Title Section */}
+                    <div className="flex items-center gap-3 flex-shrink-0 md:w-[200px]">
+                      {/* Number Badge */}
+                      <div 
+                        className="w-6 h-6 rounded flex items-center justify-center font-bold text-white text-xs flex-shrink-0"
+                        style={{ backgroundColor: badgeColor }}
+                      >
+                        {index + 1}
+                      </div>
+                      
+                      {/* SKP Name & Badge */}
+                      <div className="min-w-0 flex-1 md:flex-shrink-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold text-white truncate">{skp.skp_name}</h3>
+                          {isComplete && (
+                            <span style={{ color: '#ff5e00' }} className="text-xs">✓</span>
+                          )}
+                        </div>
+                        {skp.skp_description && (
+                          <p className="text-xs text-gray-500 truncate">{skp.skp_description}</p>
                         )}
                       </div>
-                      {skp.skp_description && (
-                        <p className="text-xs text-gray-500 truncate">{skp.skp_description}</p>
-                      )}
                     </div>
 
-                    {/* Percentage Box */}
+                    {/* Percentage Box - Hidden on mobile, shown on desktop */}
                     <div 
-                      className="px-2 py-1 rounded text-xs font-bold flex-shrink-0"
+                      className="hidden md:block px-2 py-1 rounded text-xs font-bold flex-shrink-0"
                       style={{
                         backgroundColor: percentage > 0 ? 'rgba(255, 94, 0, 0.2)' : 'rgba(156, 163, 175, 0.2)',
                         color: percentage > 0 ? '#ff5e00' : '#9ca3af'
@@ -271,36 +274,50 @@ const ProgressSKP = () => {
                       {percentage}%
                     </div>
 
-                    {/* Progress Bar */}
-                    <div className="flex-1 relative">
-                      <div className="h-5 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
-                        <div
-                          className="h-full relative transition-all duration-1000 ease-out"
-                          style={{ 
-                            width: `${percentage}%`,
-                            background: percentage > 0 ? '#ff5e00' : 'transparent'
-                          }}
-                        >
-                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
-                        </div>
-
-                        {/* Tick marks */}
-                        <div className="absolute inset-0 flex items-center">
-                          {[25, 50, 75].map((tick) => (
-                            <div
-                              key={tick}
-                              className="absolute w-px h-full bg-gray-600"
-                              style={{ left: `${tick}%` }}
-                            ></div>
-                          ))}
-                        </div>
+                    {/* Progress Bar Section - Below title on mobile, inline on desktop */}
+                    <div className="flex items-center gap-2 md:flex-1 md:min-w-0">
+                      {/* Percentage Box - Shown on mobile, hidden on desktop */}
+                      <div 
+                        className="md:hidden px-2 py-1 rounded text-xs font-bold flex-shrink-0"
+                        style={{
+                          backgroundColor: percentage > 0 ? 'rgba(255, 94, 0, 0.2)' : 'rgba(156, 163, 175, 0.2)',
+                          color: percentage > 0 ? '#ff5e00' : '#9ca3af'
+                        }}
+                      >
+                        {percentage}%
                       </div>
 
-                      {/* Counter inside bar */}
-                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                        <span className="text-xs font-semibold text-white drop-shadow-lg">
-                          {skp.completed_count} / {skp.target_count}
-                        </span>
+                      {/* Progress Bar */}
+                      <div className="flex-1 relative min-w-0">
+                        <div className="h-5 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
+                          <div
+                            className="h-full relative transition-all duration-1000 ease-out"
+                            style={{ 
+                              width: `${percentage}%`,
+                              background: percentage > 0 ? '#ff5e00' : 'transparent'
+                            }}
+                          >
+                            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent animate-shimmer"></div>
+                          </div>
+
+                          {/* Tick marks */}
+                          <div className="absolute inset-0 flex items-center">
+                            {[25, 50, 75].map((tick) => (
+                              <div
+                                key={tick}
+                                className="absolute w-px h-full bg-gray-600"
+                                style={{ left: `${tick}%` }}
+                              ></div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Counter inside bar */}
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <span className="text-xs font-semibold text-white drop-shadow-lg">
+                            {skp.completed_count} / {skp.target_count}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
