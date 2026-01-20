@@ -30,6 +30,56 @@
   .animate-shimmer {
     animation: shimmer 2s infinite;
   }
+
+  @keyframes fadeInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-fade-in {
+    animation: fadeInUp 0.6s ease-out;
+  }
+
+  .animate-slide-up {
+    animation: fadeInUp 0.6s ease-out 0.1s both;
+  }
+
+  .animate-slide-up-delay {
+    animation: fadeInUp 0.6s ease-out 0.2s both;
+  }
+
+  .animate-slide-up-delay-2 {
+    animation: fadeInUp 0.6s ease-out 0.3s both;
+  }
+
+  .animate-slide-up-delay-3 {
+    animation: fadeInUp 0.6s ease-out 0.4s both;
+  }
+
+  @keyframes pixelGlow {
+    0%, 100% {
+      text-shadow:
+        0 0 0 rgba(0,0,0,0),
+        0 0 6px rgba(0,255,255,0.08),
+        0 0 10px rgba(255,170,0,0.06);
+    }
+    50% {
+      text-shadow:
+        0 0 0 rgba(0,0,0,0),
+        0 0 10px rgba(0,255,255,0.16),
+        0 0 16px rgba(255,170,0,0.12);
+    }
+  }
+
+  .animate-pixel-glow {
+    animation: pixelGlow 2.6s ease-in-out infinite;
+  }
 }
 
 * {

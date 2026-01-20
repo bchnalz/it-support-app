@@ -135,6 +135,16 @@ const Layout = ({ children }) => {
       roles: ['administrator', 'it_support', 'helpdesk', 'user'] 
     },
     { 
+      path: '/dashboard-executive', 
+      label: 'Executive Dashboard', 
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+      ),
+      roles: ['administrator', 'it_support', 'helpdesk', 'user'] 
+    },
+    { 
       path: '/progress-skp', 
       label: 'Progress SKP', 
       icon: (
@@ -345,21 +355,43 @@ const Layout = ({ children }) => {
               <p>Tidak ada halaman yang dapat diakses</p>
             </div>
           )}
-          {allowedMenuItems.map((item) => (
-            <Link
-              key={item.path}
-              to={item.path}
-              onClick={() => setIsSidebarOpen(false)}
-              className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg transition ${
-                isActive(item.path)
-                  ? 'bg-cyan-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-              }`}
-            >
-              {item.icon}
-              <span className="font-medium">{item.label}</span>
-            </Link>
-          ))}
+          {allowedMenuItems.map((item) => {
+            // Open dashboard-executive in new tab
+            if (item.path === '/dashboard-executive') {
+              return (
+                <a
+                  key={item.path}
+                  href={item.path}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={() => setIsSidebarOpen(false)}
+                  className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg transition ${
+                    isActive(item.path)
+                      ? 'bg-cyan-600 text-white'
+                      : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                  }`}
+                >
+                  {item.icon}
+                  <span className="font-medium">{item.label}</span>
+                </a>
+              );
+            }
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                onClick={() => setIsSidebarOpen(false)}
+                className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg transition ${
+                  isActive(item.path)
+                    ? 'bg-cyan-600 text-white'
+                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                }`}
+              >
+                {item.icon}
+                <span className="font-medium">{item.label}</span>
+              </Link>
+            );
+          })}
 
           {/* Log Penugasan Menu (Collapsible) */}
           {allowedLogPenugasanItems.length > 0 && (

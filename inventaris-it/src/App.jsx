@@ -25,6 +25,7 @@ const PagePermissionAssignment = lazy(() => import('./pages/PagePermissionAssign
 const Penugasan = lazy(() => import('./pages/Penugasan'));
 const DaftarTugas = lazy(() => import('./pages/DaftarTugas'));
 const ProgressSKP = lazy(() => import('./pages/ProgressSKP'));
+const DashboardExecutive = lazy(() => import('./pages/DashboardExecutive'));
 
 // Loading component
 const PageLoader = () => (
@@ -223,6 +224,16 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute>
             <ProgressSKP />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - Dashboard Executive (Standalone, All authenticated users) */}
+      <Route
+        path="/dashboard-executive"
+        element={
+          <ProtectedRoute>
+            <DashboardExecutive />
           </ProtectedRoute>
         }
       />
