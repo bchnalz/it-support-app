@@ -251,8 +251,6 @@ const DashboardExecutive = () => {
             className="w-16 h-16 mx-auto mb-4"
             style={{
               imageRendering: 'pixelated',
-              imageRendering: '-moz-crisp-edges',
-              imageRendering: 'crisp-edges',
             }}
           >
             <div className="w-full h-full border-4 border-cyan-400 border-t-transparent animate-spin"></div>
@@ -273,8 +271,6 @@ const DashboardExecutive = () => {
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
         imageRendering: 'pixelated',
-        imageRendering: '-moz-crisp-edges',
-        imageRendering: 'crisp-edges',
       }}
     >
       {/* Main Content */}
