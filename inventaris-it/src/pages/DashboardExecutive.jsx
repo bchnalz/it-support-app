@@ -343,29 +343,18 @@ const DashboardExecutive = () => {
                         paddingBottom: '12px',
                       }}
                     >
-                      <div className="flex-1">
-                        <div
-                          style={{
-                            color: colors.textWhite,
-                            fontFamily: pixelFont,
-                            fontSize: '10px',
-                            fontWeight: 'normal',
-                            lineHeight: '1.6',
-                          }}
-                        >
-                          Total Perangkat
-                        </div>
-                      </div>
                       <div
+                        className="flex-1 text-center"
                         style={{
-                          color: colors.accentYellow,
+                          color: colors.textWhite,
                           fontFamily: pixelFont,
-                          fontSize: '14px',
-                          fontWeight: 'normal',
-                          lineHeight: '1.6',
+                          lineHeight: '1.4',
                         }}
                       >
-                        {animatedTotalPerangkat}
+                        <div style={{ fontSize: '10px', opacity: 0.9 }}>Total Perangkat</div>
+                        <div style={{ color: colors.accentYellow, fontSize: '18px', marginTop: '6px' }}>
+                          {animatedTotalPerangkat}
+                        </div>
                       </div>
                     </div>
 
@@ -472,11 +461,65 @@ const DashboardExecutive = () => {
                   textAlign: 'center',
                 }}
               >
-                DAILY QUEST
+                <span className="inline-flex items-center justify-center gap-3">
+                  <svg
+                    width="28"
+                    height="28"
+                    viewBox="0 0 14 14"
+                    aria-hidden="true"
+                    style={{
+                      shapeRendering: 'crispEdges',
+                      imageRendering: 'pixelated',
+                      filter: 'drop-shadow(2px 2px 0 rgba(0,0,0,0.45))',
+                    }}
+                  >
+                    {/* Crossed swords (pixel-ish) */}
+                    {/* Left sword */}
+                    <rect x="2" y="1" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="3" y="2" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="4" y="3" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="5" y="4" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="6" y="5" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="7" y="6" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="8" y="7" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="9" y="8" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="10" y="9" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="11" y="10" width="1" height="1" fill="#cbd5e1" />
+                    {/* Hilt/guard */}
+                    <rect x="10" y="10" width="1" height="1" fill="#fbbf24" />
+                    <rect x="11" y="11" width="1" height="1" fill="#fbbf24" />
+                    <rect x="10" y="11" width="1" height="1" fill="#1f2937" />
+
+                    {/* Right sword */}
+                    <rect x="11" y="1" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="10" y="2" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="9" y="3" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="8" y="4" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="7" y="5" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="6" y="6" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="5" y="7" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="4" y="8" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="3" y="9" width="1" height="1" fill="#cbd5e1" />
+                    <rect x="2" y="10" width="1" height="1" fill="#cbd5e1" />
+                    {/* Hilt/guard */}
+                    <rect x="2" y="10" width="1" height="1" fill="#fbbf24" />
+                    <rect x="2" y="11" width="1" height="1" fill="#fbbf24" />
+                    <rect x="3" y="11" width="1" height="1" fill="#1f2937" />
+                  </svg>
+                  <span>DAILY QUEST</span>
+                </span>
               </h2>
 
               {todayTasks.length > 0 ? (
                 <div className="overflow-x-auto">
+                  <style>{`
+                    .dq-row:hover td {
+                      background-color: rgba(26, 30, 46, 0.45) !important;
+                    }
+                    .dq-row td {
+                      transition: background-color 160ms ease;
+                    }
+                  `}</style>
                   <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: '0' }}>
                     <thead>
                       <tr>
@@ -504,18 +547,20 @@ const DashboardExecutive = () => {
                     <tbody>
                       {todayTasks.map((task, index) => {
                         const statusColor = getTaskStatusColor(task.status);
-                        const priorityColor =
-                          task.priority === 'urgent' || task.priority === 'high'
-                            ? colors.accentRed
-                            : task.priority === 'normal'
-                              ? colors.accentYellow
-                              : colors.accentGreen;
+                        const priorityColor = (() => {
+                          const p = (task.priority || '').toLowerCase();
+                          if (p === 'urgent' || p === 'high' || p === 'tinggi') return colors.accentRed;
+                          if (p === 'normal' || p === 'medium' || p === 'sedang') return colors.accentYellow;
+                          if (p === 'low' || p === 'rendah') return colors.accentGreen;
+                          return colors.textLight;
+                        })();
 
                         return (
                           <tr
                             key={task.id}
+                            className="dq-row"
                             style={{
-                              backgroundColor: index === 0 ? colors.bgGrid : 'transparent',
+                              backgroundColor: index % 2 === 0 ? 'rgba(18, 22, 34, 0.38)' : 'rgba(18, 22, 34, 0.22)',
                               borderBottom: `1px solid ${colors.borderDark}`,
                             }}
                           >
@@ -592,7 +637,7 @@ const DashboardExecutive = () => {
                                 <div className="space-y-2">
                                   {task.assigned_devices.slice(0, 2).map((ad, idx) => (
                                     <div key={idx} className="animate-pixel-glow">
-                                      {ad.perangkat?.id_perangkat || '-'}
+                                      {ad.perangkat?.nama_perangkat || ad.perangkat?.id_perangkat || '-'}
                                     </div>
                                   ))}
                                   {task.assigned_devices.length > 2 && (
