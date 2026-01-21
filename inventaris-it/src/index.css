@@ -80,6 +80,12 @@
   .animate-pixel-glow {
     animation: pixelGlow 2.6s ease-in-out infinite;
   }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-pixel-glow {
+      animation: none;
+    }
+  }
 }
 
 * {

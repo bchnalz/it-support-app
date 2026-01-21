@@ -13,6 +13,8 @@ const DashboardExecutive = () => {
   const [totalPerangkat, setTotalPerangkat] = useState(0);
   const [animatedTotalPerangkat, setAnimatedTotalPerangkat] = useState(0);
   const [animatedJenisBarangCounts, setAnimatedJenisBarangCounts] = useState({});
+  const [unfinishedIndex, setUnfinishedIndex] = useState(0);
+  const [finishedIndex, setFinishedIndex] = useState(0);
 
   // Retro pixel-art color palette matching the image
   const colors = {
@@ -37,6 +39,13 @@ const DashboardExecutive = () => {
 
   useEffect(() => {
     fetchDashboardData();
+    
+    // Auto-refresh data every 5 minutes
+    const refreshInterval = setInterval(() => {
+      fetchDashboardData();
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    return () => clearInterval(refreshInterval);
   }, []);
 
   useEffect(() => {
@@ -125,13 +134,14 @@ const DashboardExecutive = () => {
       const jenisBarangArray = Object.values(jenisBarangCount)
         .sort((a, b) => b.value - a.value);
 
-      // Fetch today's tasks with full details
+      // Fetch tasks: all unfinished + today's finished
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const tomorrow = new Date(today);
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      const { data: tasksData, error: tasksError } = await supabase
+      // Fetch all tasks (we'll filter in JavaScript for reliability)
+      const { data: allTasksData, error: allTasksError } = await supabase
         .from('task_assignments')
         .select(`
           id,
@@ -147,24 +157,70 @@ const DashboardExecutive = () => {
           skp_category:skp_categories(code, name),
           assigned_by_user:profiles!task_assignments_assigned_by_fkey(full_name)
         `)
-        .gte('created_at', today.toISOString())
-        .lt('created_at', tomorrow.toISOString())
-        .order('created_at', { ascending: false })
-        .limit(10);
+        .order('created_at', { ascending: false });
 
-      if (tasksError) throw tasksError;
+      if (allTasksError) throw allTasksError;
+
+      // Filter tasks in JavaScript:
+      // - Unfinished: all tasks that are not completed (no date filter)
+      // - Finished: only today's tasks that are completed
+      const isTaskCompleted = (status) => {
+        const statusLower = status?.toLowerCase() || '';
+        return statusLower.includes('completed') || statusLower.includes('selesai');
+      };
+
+      const unfinishedTasksList = (allTasksData || []).filter((task) => !isTaskCompleted(task.status));
+      const finishedTasksList = (allTasksData || []).filter((task) => {
+        const taskDate = new Date(task.created_at);
+        taskDate.setHours(0, 0, 0, 0);
+        return isTaskCompleted(task.status) && taskDate.getTime() === today.getTime();
+      });
+
+      // Combine for fetching user/device details
+      const tasksData = [...unfinishedTasksList, ...finishedTasksList];
 
       // Fetch assigned users for each task
       const tasksWithUsers = await Promise.all(
         (tasksData || []).map(async (task) => {
-          const { data: assignedUsers } = await supabase
-            .from('task_assignment_users')
-            .select(`
-              user_id,
-              status,
-              profiles:profiles!task_assignment_users_user_id_fkey(full_name, email)
-            `)
-            .eq('task_assignment_id', task.id);
+          let assignedUsers = [];
+          let scheduledFor = null;
+
+          if (task.status === 'scheduled') {
+            // Planned assignees (before activation)
+            const { data: scheduleRow } = await supabase
+              .from('task_schedules')
+              .select('id, scheduled_for, status')
+              .eq('task_assignment_id', task.id)
+              .maybeSingle();
+
+            if (scheduleRow && scheduleRow.status === 'scheduled') {
+              scheduledFor = scheduleRow.scheduled_for;
+              const { data: plannedUsers } = await supabase
+                .from('task_schedule_users')
+                .select('user_id, profiles(id, full_name, email)')
+                .eq('task_schedule_id', scheduleRow.id);
+
+              assignedUsers = (plannedUsers || []).map(pu => {
+                const p = Array.isArray(pu.profiles) ? pu.profiles[0] : pu.profiles;
+                return {
+                  user_id: pu.user_id,
+                  status: 'scheduled',
+                  profiles: p ? { full_name: p.full_name, email: p.email } : null,
+                };
+              });
+            }
+          } else {
+            const { data } = await supabase
+              .from('task_assignment_users')
+              .select(`
+                user_id,
+                status,
+                profiles:profiles!task_assignment_users_user_id_fkey(full_name, email)
+              `)
+              .eq('task_assignment_id', task.id);
+
+            assignedUsers = data || [];
+          }
 
           // Fetch assigned devices
           const { data: assignedDevices } = await supabase
@@ -179,6 +235,7 @@ const DashboardExecutive = () => {
             ...task,
             assigned_users: assignedUsers || [],
             assigned_devices: assignedDevices || [],
+            scheduled_for: scheduledFor,
           };
         })
       );
@@ -190,6 +247,11 @@ const DashboardExecutive = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const isTaskCompleted = (status) => {
+    const statusLower = status?.toLowerCase() || '';
+    return statusLower.includes('completed') || statusLower.includes('selesai');
   };
 
   const getTaskStatusColor = (status) => {
@@ -237,6 +299,76 @@ const DashboardExecutive = () => {
     return '📦'; // Default icon
   };
 
+  const stepCarousel = (target, direction, length) => {
+    if (!length || length <= 1) return;
+    const delta = direction === 'next' ? 1 : -1;
+    if (target === 'unfinished') {
+      setUnfinishedIndex((prev) => (prev + delta + length) % length);
+    } else if (target === 'finished') {
+      setFinishedIndex((prev) => (prev + delta + length) % length);
+    }
+  };
+
+  const unfinishedTasks = (todayTasks || []).filter((t) => !isTaskCompleted(t.status));
+  const finishedTasks = (todayTasks || []).filter((t) => isTaskCompleted(t.status));
+
+  // Auto-advance carousels every 5 seconds
+  useEffect(() => {
+    if (unfinishedTasks.length > 0) {
+      const interval = setInterval(() => {
+        setUnfinishedIndex((prev) => {
+          if (unfinishedTasks.length === 0) return 0;
+          return (prev + 1) % unfinishedTasks.length;
+        });
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [unfinishedTasks.length]);
+
+  useEffect(() => {
+    if (finishedTasks.length > 0) {
+      const interval = setInterval(() => {
+        setFinishedIndex((prev) => {
+          if (finishedTasks.length === 0) return 0;
+          return (prev + 1) % finishedTasks.length;
+        });
+      }, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [finishedTasks.length]);
+
+  // Keep indices stable across data refreshes; only clamp when out of bounds
+  useEffect(() => {
+    if (unfinishedTasks.length === 0) {
+      if (unfinishedIndex !== 0) setUnfinishedIndex(0);
+      return;
+    }
+    if (unfinishedIndex > unfinishedTasks.length - 1) {
+      setUnfinishedIndex(0);
+    }
+  }, [unfinishedTasks.length, unfinishedIndex]);
+
+  useEffect(() => {
+    if (finishedTasks.length === 0) {
+      if (finishedIndex !== 0) setFinishedIndex(0);
+      return;
+    }
+    if (finishedIndex > finishedTasks.length - 1) {
+      setFinishedIndex(0);
+    }
+  }, [finishedTasks.length, finishedIndex]);
+
+  // Ensure indices are within bounds
+  const safeUnfinishedIndex = unfinishedTasks.length > 0 
+    ? Math.min(unfinishedIndex, unfinishedTasks.length - 1) 
+    : 0;
+  const safeFinishedIndex = finishedTasks.length > 0 
+    ? Math.min(finishedIndex, finishedTasks.length - 1) 
+    : 0;
+
+  const safeUnfinishedTaskId = unfinishedTasks[safeUnfinishedIndex]?.id ?? safeUnfinishedIndex;
+  const safeFinishedTaskId = finishedTasks[safeFinishedIndex]?.id ?? safeFinishedIndex;
+
   if (loading) {
     return (
       <div 
@@ -266,7 +398,7 @@ const DashboardExecutive = () => {
       className="fixed inset-0 w-screen h-screen overflow-auto"
       style={{ 
         backgroundColor: '#0b0f18',
-        backgroundImage: `linear-gradient(rgba(10,12,18,0.52), rgba(10,12,18,0.58)), url(${bgImageUrl})`,
+        backgroundImage: `url(${bgImageUrl})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
@@ -275,7 +407,7 @@ const DashboardExecutive = () => {
     >
       {/* Main Content */}
       <div className="relative z-10 min-h-screen p-6 md:p-8">
-        <div className="max-w-7xl mx-auto">
+        <div className="max-w-none w-full mx-auto">
           {/* Title */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
@@ -294,28 +426,33 @@ const DashboardExecutive = () => {
                 textShadow: `3px 3px 0 ${colors.bgGrid}`,
               }}
             >
-              IT-Support Guild
+              • IT-Support Guild •
             </h1>
+            <p
+              style={{
+                color: colors.textLight,
+                fontFamily: pixelFont,
+                fontSize: '14px',
+                fontWeight: 'normal',
+                textTransform: 'uppercase',
+                letterSpacing: '1px',
+                lineHeight: '1.5',
+                marginTop: '4px',
+                opacity: 0.8,
+              }}
+            >
+              Support of the Ancient
+            </p>
           </motion.div>
 
           {/* Vertical layout (Devices -> Tasks) */}
           <div className="space-y-4">
             {/* DEVICES (Top) */}
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
-              style={{
-                backgroundColor: 'rgba(20, 24, 36, 0.72)',
-                border: `2px solid rgba(232, 232, 232, 0.12)`,
-                backdropFilter: 'blur(6px)',
-                padding: '18px',
-              }}
-            >
+            <div>
               <h2
-                className="mb-3"
+                className="mb-1"
                 style={{
-                  color: colors.textWhite,
+                  color: '#e8d7a5',
                   fontFamily: pixelFont,
                   fontSize: '32px',
                   fontWeight: 'normal',
@@ -323,37 +460,25 @@ const DashboardExecutive = () => {
                   letterSpacing: '1px',
                   lineHeight: '1.5',
                   textAlign: 'center',
+                  textShadow: `3px 3px 0 ${colors.bgGrid}`,
                 }}
               >
-                DATA PERANGKAT
+                DATA PERANGKAT (Total : {animatedTotalPerangkat})
               </h2>
-
-              <div className="space-y-4">
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                style={{
+                  backgroundColor: 'rgba(40, 48, 60, 0.45)',
+                  border: `2px solid rgba(232, 232, 232, 0.12)`,
+                  backdropFilter: 'blur(6px)',
+                  padding: '18px',
+                }}
+              >
+                <div className="space-y-4">
                 {perangkatByJenisBarang.length > 0 ? (
                   <>
-                    {/* Total Perangkat (Top) */}
-                    <div
-                      className="flex items-center gap-4 mb-4 pb-3"
-                      style={{
-                        borderBottom: `2px solid rgba(232, 232, 232, 0.14)`,
-                        paddingBottom: '12px',
-                      }}
-                    >
-                      <div
-                        className="flex-1 text-center"
-                        style={{
-                          color: colors.textWhite,
-                          fontFamily: pixelFont,
-                          lineHeight: '1.4',
-                        }}
-                      >
-                        <div style={{ fontSize: '10px', opacity: 0.9 }}>Total Perangkat</div>
-                        <div style={{ color: colors.accentYellow, fontSize: '18px', marginTop: '6px' }}>
-                          {animatedTotalPerangkat}
-                        </div>
-                      </div>
-                    </div>
-
                     {/* Jenis Barang (Boxes horizontal, wrap) */}
                     <div
                       className="grid gap-1"
@@ -430,24 +555,15 @@ const DashboardExecutive = () => {
                   </div>
                 )}
               </div>
-            </motion.div>
+              </motion.div>
+            </div>
 
             {/* TASKS (Bottom) */}
-            <motion.div
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.15 }}
-              style={{
-                backgroundColor: 'rgba(20, 24, 36, 0.72)',
-                border: `2px solid rgba(232, 232, 232, 0.12)`,
-                backdropFilter: 'blur(6px)',
-                padding: '28px',
-              }}
-            >
+            <div>
               <h2
-                className="mb-6"
+                className="mb-2"
                 style={{
-                  color: colors.textWhite,
+                  color: '#e8d7a5',
                   fontFamily: pixelFont,
                   fontSize: '32px',
                   fontWeight: 'normal',
@@ -455,237 +571,53 @@ const DashboardExecutive = () => {
                   letterSpacing: '1px',
                   lineHeight: '1.5',
                   textAlign: 'center',
+                  textShadow: `3px 3px 0 ${colors.bgGrid}`,
                 }}
               >
                 <span className="inline-flex items-center justify-center gap-3">
-                  <svg
-                    width="28"
-                    height="28"
-                    viewBox="0 0 14 14"
-                    aria-hidden="true"
+                  <img
+                    src="/daily-quest-icon.png"
+                    alt="Daily Quest"
+                    width={48}
+                    height={48}
                     style={{
-                      shapeRendering: 'crispEdges',
                       imageRendering: 'pixelated',
-                      filter: 'drop-shadow(2px 2px 0 rgba(0,0,0,0.45))',
                     }}
-                  >
-                    {/* Crossed swords (pixel-ish) */}
-                    {/* Left sword */}
-                    <rect x="2" y="1" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="3" y="2" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="4" y="3" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="5" y="4" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="6" y="5" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="7" y="6" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="8" y="7" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="9" y="8" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="10" y="9" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="11" y="10" width="1" height="1" fill="#cbd5e1" />
-                    {/* Hilt/guard */}
-                    <rect x="10" y="10" width="1" height="1" fill="#fbbf24" />
-                    <rect x="11" y="11" width="1" height="1" fill="#fbbf24" />
-                    <rect x="10" y="11" width="1" height="1" fill="#1f2937" />
-
-                    {/* Right sword */}
-                    <rect x="11" y="1" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="10" y="2" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="9" y="3" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="8" y="4" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="7" y="5" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="6" y="6" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="5" y="7" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="4" y="8" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="3" y="9" width="1" height="1" fill="#cbd5e1" />
-                    <rect x="2" y="10" width="1" height="1" fill="#cbd5e1" />
-                    {/* Hilt/guard */}
-                    <rect x="2" y="10" width="1" height="1" fill="#fbbf24" />
-                    <rect x="2" y="11" width="1" height="1" fill="#fbbf24" />
-                    <rect x="3" y="11" width="1" height="1" fill="#1f2937" />
-                  </svg>
+                  />
                   <span>DAILY QUEST</span>
+                  <img
+                    src="/daily-quest-icon.png"
+                    alt="Daily Quest"
+                    width={48}
+                    height={48}
+                    style={{
+                      imageRendering: 'pixelated',
+                      transform: 'scaleX(-1)',
+                    }}
+                  />
                 </span>
               </h2>
+              <motion.div
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+                style={{
+                  backgroundColor: 'rgba(40, 48, 60, 0.45)',
+                  border: `2px solid rgba(232, 232, 232, 0.12)`,
+                  backdropFilter: 'blur(6px)',
+                  padding: '28px',
+                }}
+              >
+              <style>{`
+                .dq-row:hover td {
+                  background-color: rgba(26, 30, 46, 0.45) !important;
+                }
+                .dq-row td {
+                  transition: background-color 160ms ease;
+                }
+              `}</style>
 
-              {todayTasks.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <style>{`
-                    .dq-row:hover td {
-                      background-color: rgba(26, 30, 46, 0.45) !important;
-                    }
-                    .dq-row td {
-                      transition: background-color 160ms ease;
-                    }
-                  `}</style>
-                  <table className="w-full" style={{ borderCollapse: 'separate', borderSpacing: '0' }}>
-                    <thead>
-                      <tr>
-                        {['No. Tugas', 'Judul & SKP', 'Petugas', 'Perangkat', 'Prioritas', 'Status'].map((header) => (
-                          <th
-                            key={header}
-                            style={{
-                              color: colors.textLight,
-                              fontFamily: pixelFont,
-                              fontSize: '10px',
-                              padding: '14px 10px',
-                              textAlign: 'left',
-                              borderBottom: `1px solid rgba(232, 232, 232, 0.10)`,
-                              textTransform: 'uppercase',
-                              lineHeight: '1.6',
-                              backgroundColor: 'rgba(18, 22, 34, 0.72)',
-                              whiteSpace: 'nowrap',
-                            }}
-                          >
-                            {header}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {todayTasks.map((task, index) => {
-                        const statusColor = getTaskStatusColor(task.status);
-                        const priorityColor = (() => {
-                          const p = (task.priority || '').toLowerCase();
-                          if (p === 'urgent' || p === 'high' || p === 'tinggi') return colors.accentRed;
-                          if (p === 'normal' || p === 'medium' || p === 'sedang') return colors.accentYellow;
-                          if (p === 'low' || p === 'rendah') return colors.accentGreen;
-                          return colors.textLight;
-                        })();
-
-                        return (
-                          <tr
-                            key={task.id}
-                            className="dq-row"
-                            style={{
-                              backgroundColor: index % 2 === 0 ? 'rgba(18, 22, 34, 0.38)' : 'rgba(18, 22, 34, 0.22)',
-                              borderBottom: `1px solid ${colors.borderDark}`,
-                            }}
-                          >
-                            <td
-                              style={{
-                                color: colors.accentCyan,
-                                fontFamily: pixelFont,
-                                fontSize: '10px',
-                                padding: '14px 10px',
-                                fontWeight: 'normal',
-                                lineHeight: '1.6',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              <span className="animate-pixel-glow">{task.task_number || 'N/A'}</span>
-                            </td>
-                            <td
-                              style={{
-                                color: colors.textWhite,
-                                fontFamily: pixelFont,
-                                fontSize: '10px',
-                                padding: '14px 10px',
-                                lineHeight: '1.6',
-                                minWidth: '220px',
-                              }}
-                            >
-                              <div>
-                                <div className="animate-pixel-glow">{task.title || 'No title'}</div>
-                                {task.skp_category && (
-                                  <div className="animate-pixel-glow" style={{ color: colors.textLight, fontSize: '9px', marginTop: '6px', lineHeight: '1.6' }}>
-                                    {task.skp_category.name}
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                            <td
-                              style={{
-                                color: colors.textWhite,
-                                fontFamily: pixelFont,
-                                fontSize: '10px',
-                                padding: '14px 10px',
-                                lineHeight: '1.6',
-                                minWidth: '200px',
-                              }}
-                            >
-                              {task.assigned_users && task.assigned_users.length > 0 ? (
-                                <div className="space-y-2">
-                                  {task.assigned_users.slice(0, 2).map((au, idx) => (
-                                    <div key={idx} className="animate-pixel-glow">
-                                      {au.profiles?.full_name || au.profiles?.email || '-'}
-                                    </div>
-                                  ))}
-                                  {task.assigned_users.length > 2 && (
-                                    <div className="animate-pixel-glow" style={{ color: colors.textLight, fontSize: '9px', lineHeight: '1.6' }}>
-                                      +{task.assigned_users.length - 2} more
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <span style={{ color: colors.textLight }}>-</span>
-                              )}
-                            </td>
-                            <td
-                              style={{
-                                color: colors.accentYellow,
-                                fontFamily: pixelFont,
-                                fontSize: '10px',
-                                padding: '14px 10px',
-                                lineHeight: '1.6',
-                                minWidth: '160px',
-                              }}
-                            >
-                              {task.assigned_devices && task.assigned_devices.length > 0 ? (
-                                <div className="space-y-2">
-                                  {task.assigned_devices.slice(0, 2).map((ad, idx) => (
-                                    <div key={idx} className="animate-pixel-glow">
-                                      {ad.perangkat?.nama_perangkat || ad.perangkat?.id_perangkat || '-'}
-                                    </div>
-                                  ))}
-                                  {task.assigned_devices.length > 2 && (
-                                    <div className="animate-pixel-glow" style={{ color: colors.textLight, fontSize: '9px', lineHeight: '1.6' }}>
-                                      +{task.assigned_devices.length - 2} more
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <span style={{ color: colors.textLight }}>-</span>
-                              )}
-                            </td>
-                            <td
-                              style={{
-                                color: priorityColor,
-                                fontFamily: pixelFont,
-                                fontSize: '10px',
-                                padding: '14px 10px',
-                                lineHeight: '1.6',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              <span className="animate-pixel-glow">{task.priority || 'N/A'}</span>
-                            </td>
-                            <td
-                              style={{
-                                color: statusColor,
-                                fontFamily: pixelFont,
-                                fontSize: '10px',
-                                padding: '14px 10px',
-                                lineHeight: '1.6',
-                                whiteSpace: 'nowrap',
-                              }}
-                            >
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className={`inline-block w-2 h-2 rounded-full animate-pulse ${
-                                    (task.status || '').toLowerCase().includes('completed') || (task.status || '').toLowerCase().includes('selesai')
-                                      ? 'bg-green-400'
-                                      : 'bg-red-400'
-                                  }`}
-                                />
-                                <span className="animate-pixel-glow">{task.status || 'N/A'}</span>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
+              {(unfinishedTasks.length === 0 && finishedTasks.length === 0) ? (
                 <div
                   style={{
                     color: colors.textLight,
@@ -698,10 +630,363 @@ const DashboardExecutive = () => {
                 >
                   No tasks available
                 </div>
+              ) : (
+                <div className="w-full grid grid-cols-2 gap-8 items-start">
+                  {/* TABLE 1: Active tasks */}
+                  <div className="w-full">
+                    <h3
+                      className="mb-3"
+                      style={{
+                        color: colors.textWhite,
+                        fontFamily: pixelFont,
+                        fontSize: '14px',
+                        fontWeight: 'normal',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
+                        lineHeight: '1.6',
+                        textAlign: 'center',
+                      }}
+                    >
+                      QUEST AKTIF ({unfinishedTasks ? unfinishedTasks.length : 0})
+                    </h3>
+
+                    {unfinishedTasks.length > 0 ? (
+                      <div className="w-full" style={{ minHeight: '400px' }}>
+                        <div
+                          style={{
+                            backgroundColor: 'rgba(18, 22, 34, 0.6)',
+                            border: `2px solid rgba(232, 232, 232, 0.15)`,
+                            padding: '32px',
+                            borderRadius: '8px',
+                            height: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          {(() => {
+                            const task = unfinishedTasks[safeUnfinishedIndex];
+                            if (!task) return null;
+                            const statusColor = getTaskStatusColor(task.status);
+                            return (
+                              <>
+                                <div className="space-y-6">
+                                  {/* Petugas */}
+                                  <div>
+                                    <div style={{ color: colors.textLight, fontFamily: pixelFont, fontSize: '12px', marginBottom: '12px', textTransform: 'uppercase' }}>
+                                      Petugas
+                                    </div>
+                                    <div style={{ color: colors.textWhite, fontFamily: pixelFont, fontSize: '12px', lineHeight: '1.8' }}>
+                                      {task.assigned_users && task.assigned_users.length > 0 ? (
+                                        <div className="animate-pixel-glow">
+                                          {task.assigned_users
+                                            .map((au) => au?.profiles?.full_name || au?.profiles?.email || '-')
+                                            .join(', ')}
+                                        </div>
+                                      ) : (
+                                        <span style={{ color: colors.textLight }}>-</span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Judul & SKP */}
+                                  <div>
+                                    <div style={{ color: colors.textLight, fontFamily: pixelFont, fontSize: '12px', marginBottom: '12px', textTransform: 'uppercase' }}>
+                                      Judul & SKP
+                                    </div>
+                                    <div style={{ color: colors.textWhite, fontFamily: pixelFont, fontSize: '12px', lineHeight: '1.8' }}>
+                                      <div className="animate-pixel-glow">{task.title || 'No title'}</div>
+                                      {task.skp_category && (
+                                        <div className="animate-pixel-glow" style={{ color: colors.textLight, fontSize: '10px', marginTop: '8px', lineHeight: '1.6' }}>
+                                          {task.skp_category.name}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Nama Perangkat */}
+                                  <div>
+                                    <div style={{ color: colors.textLight, fontFamily: pixelFont, fontSize: '12px', marginBottom: '12px', textTransform: 'uppercase' }}>
+                                      Nama Perangkat
+                                    </div>
+                                    <div style={{ color: colors.accentYellow, fontFamily: pixelFont, fontSize: '12px', lineHeight: '1.8' }}>
+                                      {task.assigned_devices && task.assigned_devices.length > 0 ? (
+                                        <div className="space-y-3">
+                                          {task.assigned_devices.map((ad, idx) => (
+                                            <div key={idx} className="animate-pixel-glow">
+                                              {ad.perangkat?.nama_perangkat || ad.perangkat?.id_perangkat || '-'}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <span style={{ color: colors.textLight }}>-</span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Status */}
+                                  <div>
+                                    <div style={{ color: colors.textLight, fontFamily: pixelFont, fontSize: '12px', marginBottom: '12px', textTransform: 'uppercase' }}>
+                                      Status
+                                    </div>
+                                    <div style={{ color: statusColor, fontFamily: pixelFont, fontSize: '12px', lineHeight: '1.8' }}>
+                                      <div className="flex items-center gap-3">
+                                        <span
+                                          className={`inline-block w-3 h-3 rounded-full animate-pulse ${
+                                            isTaskCompleted(task.status) ? 'bg-green-400' : 'bg-red-400'
+                                          }`}
+                                        />
+                                        <span className="animate-pixel-glow">{task.status || 'N/A'}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Carousel indicator */}
+                                <div className="mt-6 flex items-center justify-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => stepCarousel('unfinished', 'prev', unfinishedTasks.length)}
+                                    disabled={unfinishedTasks.length <= 1}
+                                    style={{
+                                      fontFamily: pixelFont,
+                                      fontSize: '14px',
+                                      color: colors.textWhite,
+                                      backgroundColor: 'rgba(18, 22, 34, 0.8)',
+                                      border: `2px solid rgba(232, 232, 232, 0.18)`,
+                                      padding: '8px 10px',
+                                      borderRadius: '8px',
+                                      opacity: unfinishedTasks.length <= 1 ? 0.4 : 1,
+                                    }}
+                                    aria-label="Previous quest"
+                                    title="Previous"
+                                  >
+                                    ←
+                                  </button>
+                                    {unfinishedTasks.map((_, idx) => (
+                                      <div
+                                        key={idx}
+                                        style={{
+                                          width: idx === safeUnfinishedIndex ? '24px' : '8px',
+                                          height: '8px',
+                                          backgroundColor: idx === safeUnfinishedIndex ? colors.accentYellow : colors.textLight,
+                                          borderRadius: '4px',
+                                          transition: 'all 0.3s ease',
+                                          opacity: idx === safeUnfinishedIndex ? 1 : 0.5,
+                                        }}
+                                      />
+                                    ))}
+                                  <button
+                                    type="button"
+                                    onClick={() => stepCarousel('unfinished', 'next', unfinishedTasks.length)}
+                                    disabled={unfinishedTasks.length <= 1}
+                                    style={{
+                                      fontFamily: pixelFont,
+                                      fontSize: '14px',
+                                      color: colors.textWhite,
+                                      backgroundColor: 'rgba(18, 22, 34, 0.8)',
+                                      border: `2px solid rgba(232, 232, 232, 0.18)`,
+                                      padding: '8px 10px',
+                                      borderRadius: '8px',
+                                      opacity: unfinishedTasks.length <= 1 ? 0.4 : 1,
+                                    }}
+                                    aria-label="Next quest"
+                                    title="Next"
+                                  >
+                                    →
+                                  </button>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          color: colors.textLight,
+                          fontFamily: pixelFont,
+                          fontSize: '12px',
+                          padding: '16px 12px',
+                          textAlign: 'center',
+                          lineHeight: '1.6',
+                          backgroundColor: 'rgba(18, 22, 34, 0.35)',
+                          border: `1px solid rgba(232, 232, 232, 0.10)`,
+                        }}
+                      >
+                        No unfinished tasks
+                      </div>
+                    )}
+                  </div>
+
+                  {/* TABLE 2: Finished tasks */}
+                  <div className="w-full">
+                    <h3
+                      className="mb-3"
+                      style={{
+                        color: colors.textWhite,
+                        fontFamily: pixelFont,
+                        fontSize: '14px',
+                        fontWeight: 'normal',
+                        textTransform: 'uppercase',
+                        letterSpacing: '1px',
+                        lineHeight: '1.6',
+                        textAlign: 'center',
+                      }}
+                    >
+                      QUEST SELESAI ({finishedTasks ? finishedTasks.length : 0})
+                    </h3>
+
+                    {finishedTasks.length > 0 ? (
+                      <div className="w-full" style={{ minHeight: '400px' }}>
+                        <div
+                          style={{
+                            backgroundColor: 'rgba(18, 22, 34, 0.6)',
+                            border: `2px solid rgba(232, 232, 232, 0.15)`,
+                            padding: '32px',
+                            borderRadius: '8px',
+                            height: '100%',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          {(() => {
+                            const task = finishedTasks[safeFinishedIndex];
+                            if (!task) return null;
+                            const statusColor = getTaskStatusColor(task.status);
+                            return (
+                              <>
+                                <div className="space-y-6">
+                                  {/* Petugas */}
+                                  <div>
+                                    <div style={{ color: colors.textLight, fontFamily: pixelFont, fontSize: '12px', marginBottom: '12px', textTransform: 'uppercase' }}>
+                                      Petugas
+                                    </div>
+                                    <div style={{ color: colors.textWhite, fontFamily: pixelFont, fontSize: '12px', lineHeight: '1.8' }}>
+                                      {task.assigned_users && task.assigned_users.length > 0 ? (
+                                        <div className="animate-pixel-glow">
+                                          {task.assigned_users
+                                            .map((au) => au?.profiles?.full_name || au?.profiles?.email || '-')
+                                            .join(', ')}
+                                        </div>
+                                      ) : (
+                                        <span style={{ color: colors.textLight }}>-</span>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Judul & SKP */}
+                                  <div>
+                                    <div style={{ color: colors.textLight, fontFamily: pixelFont, fontSize: '12px', marginBottom: '12px', textTransform: 'uppercase' }}>
+                                      Judul & SKP
+                                    </div>
+                                    <div style={{ color: colors.textWhite, fontFamily: pixelFont, fontSize: '12px', lineHeight: '1.8' }}>
+                                      <div className="animate-pixel-glow">{task.title || 'No title'}</div>
+                                      {task.skp_category && (
+                                        <div className="animate-pixel-glow" style={{ color: colors.textLight, fontSize: '10px', marginTop: '8px', lineHeight: '1.6' }}>
+                                          {task.skp_category.name}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Status */}
+                                  <div>
+                                    <div style={{ color: colors.textLight, fontFamily: pixelFont, fontSize: '12px', marginBottom: '12px', textTransform: 'uppercase' }}>
+                                      Status
+                                    </div>
+                                    <div style={{ color: statusColor, fontFamily: pixelFont, fontSize: '12px', lineHeight: '1.8' }}>
+                                      <div className="flex items-center gap-3">
+                                        <span className="inline-block w-3 h-3 rounded-full bg-green-400" />
+                                        <span className="animate-pixel-glow">{task.status || 'N/A'}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Carousel indicator */}
+                                <div className="mt-6 flex items-center justify-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => stepCarousel('finished', 'prev', finishedTasks.length)}
+                                    disabled={finishedTasks.length <= 1}
+                                    style={{
+                                      fontFamily: pixelFont,
+                                      fontSize: '14px',
+                                      color: colors.textWhite,
+                                      backgroundColor: 'rgba(18, 22, 34, 0.8)',
+                                      border: `2px solid rgba(232, 232, 232, 0.18)`,
+                                      padding: '8px 10px',
+                                      borderRadius: '8px',
+                                      opacity: finishedTasks.length <= 1 ? 0.4 : 1,
+                                    }}
+                                    aria-label="Previous quest"
+                                    title="Previous"
+                                  >
+                                    ←
+                                  </button>
+                                    {finishedTasks.map((_, idx) => (
+                                      <div
+                                        key={idx}
+                                        style={{
+                                          width: idx === safeFinishedIndex ? '24px' : '8px',
+                                          height: '8px',
+                                          backgroundColor: idx === safeFinishedIndex ? colors.accentYellow : colors.textLight,
+                                          borderRadius: '4px',
+                                          transition: 'all 0.3s ease',
+                                          opacity: idx === safeFinishedIndex ? 1 : 0.5,
+                                        }}
+                                      />
+                                    ))}
+                                  <button
+                                    type="button"
+                                    onClick={() => stepCarousel('finished', 'next', finishedTasks.length)}
+                                    disabled={finishedTasks.length <= 1}
+                                    style={{
+                                      fontFamily: pixelFont,
+                                      fontSize: '14px',
+                                      color: colors.textWhite,
+                                      backgroundColor: 'rgba(18, 22, 34, 0.8)',
+                                      border: `2px solid rgba(232, 232, 232, 0.18)`,
+                                      padding: '8px 10px',
+                                      borderRadius: '8px',
+                                      opacity: finishedTasks.length <= 1 ? 0.4 : 1,
+                                    }}
+                                    aria-label="Next quest"
+                                    title="Next"
+                                  >
+                                    →
+                                  </button>
+                                </div>
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          color: colors.textLight,
+                          fontFamily: pixelFont,
+                          fontSize: '12px',
+                          padding: '16px 12px',
+                          textAlign: 'center',
+                          lineHeight: '1.6',
+                          backgroundColor: 'rgba(18, 22, 34, 0.35)',
+                          border: `1px solid rgba(232, 232, 232, 0.10)`,
+                        }}
+                      >
+                        No finished tasks
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
             </motion.div>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Pixelated styling */}
