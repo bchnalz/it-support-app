@@ -24,6 +24,7 @@ import { useToast } from '../contexts/ToastContext';
  */
 const AVAILABLE_PAGES = [
   { route: '/', label: 'Dashboard', description: 'Halaman utama dashboard' },
+  { route: '/dashboard-executive', label: 'Executive Dashboard', description: 'Dashboard eksekutif dengan statistik lengkap' },
   { route: '/master-jenis-perangkat', label: 'Master Jenis Perangkat', description: 'Kelola jenis perangkat' },
   { route: '/master-jenis-barang', label: 'Master Jenis Barang', description: 'Kelola jenis barang' },
   { route: '/master-lokasi', label: 'Master Lokasi', description: 'Kelola lokasi' },

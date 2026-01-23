@@ -47,6 +47,24 @@ const Dashboard = () => {
     };
   }, []);
 
+  // ESC key handler for modals
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape' && showBreakdownModal) {
+        setShowBreakdownModal(false);
+        setSelectedJenisPerangkat(null);
+        setBreakdownPerLokasi([]);
+      }
+    };
+
+    if (showBreakdownModal) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => {
+        document.removeEventListener('keydown', handleEscKey);
+      };
+    }
+  }, [showBreakdownModal]);
+
   const fetchUserCategory = async () => {
     try {
       const { data, error } = await supabase

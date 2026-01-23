@@ -28,6 +28,30 @@ const MasterSKP = () => {
     fetchSKPCategories();
   }, []);
 
+  // ESC key handler for modals
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape') {
+        if (showAddForm) {
+          setShowAddForm(false);
+          setEditingId(null);
+          setForm({ name: '', description: '', is_active: true });
+        } else if (showTargetModal) {
+          setShowTargetModal(false);
+          setSelectedSKP(null);
+          setTargetForm({ year: new Date().getFullYear(), target_count: 0 });
+        }
+      }
+    };
+
+    if (showAddForm || showTargetModal) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => {
+        document.removeEventListener('keydown', handleEscKey);
+      };
+    }
+  }, [showAddForm, showTargetModal]);
+
   const fetchSKPCategories = async () => {
     try {
       setLoading(true);

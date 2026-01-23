@@ -6,7 +6,7 @@ import IPAddressInput from '../components/IPAddressInput';
 import MACAddressInput from '../components/MACAddressInput';
 import StorageInput from '../components/StorageInput';
 import { useToast } from '../contexts/ToastContext';
-import { MagnifyingGlassPlusIcon, PencilSquareIcon, ArrowsRightLeftIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassPlusIcon, PencilSquareIcon, ArrowsRightLeftIcon, TrashIcon, ClipboardDocumentIcon, FunnelIcon, XMarkIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 
 const StokOpnam = () => {
   const { profile } = useAuth();
@@ -19,6 +19,15 @@ const StokOpnam = () => {
   // Don't block initial render; load data after first paint
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [columnFilters, setColumnFilters] = useState({
+    nama_perangkat: '',
+    tanggal_entry: '',
+    petugas: '',
+    jenis_perangkat: '',
+    jenis_barang: '',
+    status: '',
+  });
+  const [openHeaderMenu, setOpenHeaderMenu] = useState(null); // column key or null
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [showAddForm, setShowAddForm] = useState(false);
@@ -76,6 +85,20 @@ const StokOpnam = () => {
     serial_number_monitor: '',
     status_perangkat: true, // true = layak, false = tidak layak (rusak)
   });
+
+  const copyToClipboard = async (text, label) => {
+    const value = String(text ?? '').trim();
+    if (!value) {
+      toast.error(`❌ ${label} kosong`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`✅ ${label} copied!`);
+    } catch {
+      toast.error(`❌ Gagal copy ${label}`);
+    }
+  };
 
   useEffect(() => {
     // Defer network queries until after first paint so search/button render instantly.
@@ -224,6 +247,11 @@ const StokOpnam = () => {
     }
   };
 
+  const handleRefreshData = async () => {
+    // Re-fetch table data without reloading the whole page
+    await fetchPerangkat();
+  };
+
   // Filter jenis barang based on selected jenis perangkat
   const getFilteredJenisBarang = (jenisPerangkatKode) => {
     if (!jenisPerangkatKode) return jenisBarangList;
@@ -253,36 +281,49 @@ const StokOpnam = () => {
   };
 
   // Step 1: Generate ID & Save minimal data
+  const [isSubmittingStep1, setIsSubmittingStep1] = useState(false);
+  
   const handleGenerateAndSave = async (e) => {
     e.preventDefault();
 
+    // Prevent multiple submissions
+    if (isSubmittingStep1) {
+      toast.warning('⏳ Sedang memproses, harap tunggu...');
+      return;
+    }
+
+    // Validate serial number is not "-"
+    if (!step1Form.serial_number || step1Form.serial_number.trim() === '' || step1Form.serial_number.trim() === '-') {
+      toast.error('❌ Serial number tidak boleh kosong atau "-". Silakan masukkan serial number yang valid.');
+      return;
+    }
+
+    setIsSubmittingStep1(true);
+
     try {
-      // Generate ID Perangkat
-      const idPerangkat = await generateIdPerangkat(step1Form.jenis_perangkat_kode);
-      setGeneratedIdPerangkat(idPerangkat);
+      // Optional: Pre-check for duplicate (better UX, but database constraint will catch it anyway)
+      const { data: existingData, error: checkError } = await supabase
+        .from('perangkat')
+        .select('id, id_perangkat, serial_number')
+        .eq('serial_number', step1Form.serial_number.trim())
+        .maybeSingle();
 
-      // Extract urutan perangkat (4 digit terakhir dari ID)
-      // Format ID: 001.2026.01.0001 → urutan = 0001
-      const urutanPerangkat = idPerangkat.split('.').pop(); // Get last part (0001)
+      if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        throw checkError;
+      }
 
-      // Get kode lokasi (bukan nama!)
-      const kodeLokasi = step1Form.lokasi_kode || 'XXX';
+      if (existingData) {
+        toast.error(`❌ Serial number "${step1Form.serial_number}" sudah terdaftar dengan ID Perangkat: ${existingData.id_perangkat}. Silakan gunakan serial number yang berbeda.`);
+        setIsSubmittingStep1(false);
+        return;
+      }
 
-      // Generate nama_perangkat: (Kode Lokasi)-(Urutan)
-      // Example: IT-0001, FARMASI158-0002
-      const namaPerangkat = `${kodeLokasi}-${urutanPerangkat}`;
-      setGeneratedNamaPerangkat(namaPerangkat);
-
-      console.log('🏷️ Auto-generated Nama Perangkat:', namaPerangkat);
-
-      // Prepare minimal data untuk insert
+      // Insert minimal data; DB trigger will generate id_perangkat + nama_perangkat atomically
       const dataToInsert = {
-        id_perangkat: idPerangkat,
         petugas_id: profile.id,
         jenis_perangkat_kode: step1Form.jenis_perangkat_kode,
-        serial_number: step1Form.serial_number,
+        serial_number: step1Form.serial_number.trim(), // Trim whitespace
         lokasi_kode: step1Form.lokasi_kode,
-        nama_perangkat: namaPerangkat, // AUTO-GENERATED!
         status_perangkat: 'layak', // Default layak
         // Fill optional fields with "-"
         merk: '-',
@@ -305,11 +346,23 @@ const StokOpnam = () => {
 
       if (error) throw error;
 
+      // Use the generated values from DB (source of truth)
+      setGeneratedIdPerangkat(data.id_perangkat);
+      setGeneratedNamaPerangkat(data.nama_perangkat);
+
       // Save the new ID and move to step 2
       setNewPerangkatId(data.id);
       setAddStep(2);
+      toast.success(`✅ ID Perangkat berhasil dibuat: ${data.id_perangkat}`);
     } catch (error) {
-      toast.error('❌ Gagal generate ID: ' + error.message);
+      // Check for duplicate serial number error
+      if (error.code === '23505' || error.message?.includes('Duplicate serial number') || error.message?.includes('already exists')) {
+        toast.error(`❌ Serial number "${step1Form.serial_number}" sudah terdaftar di database. Silakan gunakan serial number yang berbeda.`);
+      } else {
+        toast.error('❌ Gagal generate ID: ' + error.message);
+      }
+    } finally {
+      setIsSubmittingStep1(false);
     }
   };
 
@@ -363,6 +416,7 @@ const StokOpnam = () => {
       setNewPerangkatId(null);
       setGeneratedIdPerangkat('');
       setGeneratedNamaPerangkat('');
+      setIsSubmittingStep1(false);
       setStep1Form({
         jenis_perangkat_kode: '',
         serial_number: '',
@@ -389,8 +443,17 @@ const StokOpnam = () => {
     }
   };
 
+  const [originalLokasiKode, setOriginalLokasiKode] = useState(null);
+
+  const generateNamaPerangkat = (lokasiKode, idPerangkat) => {
+    if (!lokasiKode || !idPerangkat) return '';
+    const last4 = idPerangkat.slice(-4);
+    return `${lokasiKode}-${last4}`;
+  };
+
   const handleEdit = (item) => {
     setEditingId(item.id);
+    setOriginalLokasiKode(item.lokasi_kode);
     // Only copy actual database columns, not expanded relations
     setEditForm({
       id_perangkat: item.id_perangkat,
@@ -417,6 +480,18 @@ const StokOpnam = () => {
 
   const handleSaveEdit = async () => {
     try {
+      // Check if lokasi has changed and confirm
+      if (originalLokasiKode && editForm.lokasi_kode !== originalLokasiKode) {
+        const confirmed = window.confirm(
+          `Lokasi akan diubah dari "${originalLokasiKode}" ke "${editForm.lokasi_kode}".\n` +
+          `Nama perangkat akan otomatis berubah menjadi "${editForm.nama_perangkat}".\n\n` +
+          `Apakah Anda yakin ingin melanjutkan?`
+        );
+        if (!confirmed) {
+          return;
+        }
+      }
+
       // Extract only database columns (exclude expanded relations)
       const updateData = {
         id_perangkat: editForm.id_perangkat,
@@ -473,15 +548,41 @@ const StokOpnam = () => {
       toast.success('✅ Data berhasil diupdate!');
       setEditingId(null);
       setEditForm({});
+      setOriginalLokasiKode(null);
       fetchPerangkat();
     } catch (error) {
       toast.error('❌ Gagal update data: ' + error.message);
     }
   };
 
+  const getColumnValueForFilter = (item, column) => {
+    switch (column) {
+      case 'nama_perangkat':
+        return item.nama_perangkat || '';
+      case 'tanggal_entry':
+        return formatDate(item.tanggal_entry) || '';
+      case 'petugas':
+        return item.petugas?.full_name || '';
+      case 'jenis_perangkat':
+        return item.jenis_perangkat?.nama || '';
+      case 'jenis_barang':
+        return item.jenis_barang?.nama || '';
+      case 'status':
+        return item.status_perangkat === 'layak'
+          ? 'Layak'
+          : item.status_perangkat === 'rusak'
+            ? 'Rusak'
+            : (item.status_perangkat || '');
+      default:
+        return '';
+    }
+  };
+
   const filteredPerangkat = perangkat.filter((item) => {
     const search = searchTerm.toLowerCase();
-    return (
+
+    // General search term (global)
+    const matchesGeneralSearch = !search || (
       item.id_perangkat?.toLowerCase().includes(search) ||
       item.nama_perangkat?.toLowerCase().includes(search) ||
       item.jenis_perangkat?.nama?.toLowerCase().includes(search) ||
@@ -490,8 +591,21 @@ const StokOpnam = () => {
       item.lokasi?.nama?.toLowerCase().includes(search) ||
       item.serial_number?.toLowerCase().includes(search) ||
       item.ip_ethernet?.toLowerCase().includes(search) ||
-      item.ip_wireless?.toLowerCase().includes(search)
+      item.ip_wireless?.toLowerCase().includes(search) ||
+      item.petugas?.full_name?.toLowerCase().includes(search)
     );
+
+    if (!matchesGeneralSearch) return false;
+
+    // Column filters (AND)
+    for (const [column, value] of Object.entries(columnFilters)) {
+      const v = (value || '').toLowerCase().trim();
+      if (!v) continue;
+      const colValue = (getColumnValueForFilter(item, column) || '').toLowerCase();
+      if (!colValue.includes(v)) return false;
+    }
+
+    return true;
   });
 
   // Sorting logic
@@ -551,6 +665,78 @@ const StokOpnam = () => {
     setCurrentPage(1);
   }, [searchTerm, itemsPerPage]);
 
+  // Close header dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (openHeaderMenu && !event.target.closest('.header-menu-container')) {
+        setOpenHeaderMenu(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [openHeaderMenu]);
+
+  // ESC key handler for modals
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape') {
+        if (showAddForm) {
+          if (addStep === 1) {
+            setShowAddForm(false);
+            setAddStep(1);
+            setNewPerangkatId(null);
+            setGeneratedIdPerangkat('');
+            setStep1Form({ jenis_perangkat_kode: '', serial_number: '', lokasi_kode: '' });
+          } else if (addStep === 2 && confirm('Data Step 1 sudah tersimpan. Yakin batal? Data minimal tetap tersimpan.')) {
+            setShowAddForm(false);
+            setAddStep(1);
+            setNewPerangkatId(null);
+            setGeneratedIdPerangkat('');
+            setStep1Form({ jenis_perangkat_kode: '', serial_number: '', lokasi_kode: '' });
+            setStep2Form({
+              jenis_barang_id: '',
+              merk: '',
+              id_remoteaccess: '',
+              spesifikasi_processor: '',
+              kapasitas_ram: '',
+              storages: [],
+              mac_ethernet: '',
+              mac_wireless: '',
+              ip_ethernet: '',
+              ip_wireless: '',
+              serial_number_monitor: '',
+              status_perangkat: true,
+            });
+            fetchPerangkat();
+          }
+        } else if (viewingDetail) {
+          setViewingDetail(null);
+          setHistoryData([]);
+          setMutasiHistory([]);
+          setDetailTab('detail');
+        } else if (showMutasiModal) {
+          setShowMutasiModal(false);
+          setMutasiPerangkat(null);
+          setMutasiForm({ lokasi_baru_kode: '', keterangan: '' });
+        } else if (editingId) {
+          setEditingId(null);
+          setEditForm({});
+          setOriginalLokasiKode(null);
+        }
+      }
+    };
+
+    if (showAddForm || viewingDetail || showMutasiModal || editingId) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => {
+        document.removeEventListener('keydown', handleEscKey);
+      };
+    }
+  }, [showAddForm, viewingDetail, showMutasiModal, editingId, addStep]);
+
   const handlePageChange = (page) => {
     setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -573,6 +759,12 @@ const StokOpnam = () => {
     setCurrentPage(1); // Reset to page 1 when sorting
   };
 
+  const handleSortWithDirection = (column, direction) => {
+    setSortColumn(column);
+    setSortDirection(direction);
+    setCurrentPage(1);
+  };
+
   const SortIcon = ({ column }) => {
     if (sortColumn !== column) {
       return (
@@ -589,6 +781,128 @@ const StokOpnam = () => {
       <svg className="w-4 h-4 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
       </svg>
+    );
+  };
+
+  const HeaderMenu = ({ column, label, placeholder = 'Filter...' }) => {
+    const isOpen = openHeaderMenu === column;
+    const filterValue = columnFilters[column] || '';
+    const hasFilter = !!filterValue.trim();
+    const isSorted = sortColumn === column;
+
+    return (
+      <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase relative">
+        <div className="flex items-center justify-center gap-2">
+          <div className="flex items-center gap-1 px-2 py-1 rounded">
+            <span>{label}</span>
+            {/* Sort indicator only (not clickable) */}
+            {isSorted ? (
+              sortDirection === 'asc' ? (
+                <svg className="w-4 h-4 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 text-cyan-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              )
+            ) : null}
+          </div>
+
+          <div className="relative header-menu-container">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpenHeaderMenu(isOpen ? null : column);
+              }}
+              className={`p-1 rounded hover:bg-[#010e29] transition relative ${hasFilter ? 'text-cyan-400' : 'text-gray-400'}`}
+              title={`Sort/Filter ${label}`}
+            >
+              <FunnelIcon className="w-4 h-4" />
+              {hasFilter && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-cyan-500 rounded-full"></span>
+              )}
+            </button>
+
+            {isOpen && (
+              <div className="absolute top-full right-0 mt-2 w-64 bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-medium text-gray-300">{label}</label>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOpenHeaderMenu(null);
+                    }}
+                    className="text-gray-400 hover:text-white transition"
+                  >
+                    <XMarkIcon className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSortWithDirection(column, 'asc');
+                    }}
+                    className={`px-2 py-1.5 rounded-md text-xs border transition ${
+                      sortColumn === column && sortDirection === 'asc'
+                        ? 'bg-cyan-600/20 border-cyan-500/50 text-cyan-200'
+                        : 'bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600'
+                    }`}
+                    title="Sort ASC"
+                  >
+                    Sort ASC
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleSortWithDirection(column, 'desc');
+                    }}
+                    className={`px-2 py-1.5 rounded-md text-xs border transition ${
+                      sortColumn === column && sortDirection === 'desc'
+                        ? 'bg-cyan-600/20 border-cyan-500/50 text-cyan-200'
+                        : 'bg-gray-700 border-gray-600 text-gray-200 hover:bg-gray-600'
+                    }`}
+                    title="Sort DESC"
+                  >
+                    Sort DESC
+                  </button>
+                </div>
+
+                <input
+                  type="text"
+                  placeholder={placeholder}
+                  value={filterValue}
+                  onChange={(e) =>
+                    setColumnFilters((prev) => ({ ...prev, [column]: e.target.value }))
+                  }
+                  onClick={(e) => e.stopPropagation()}
+                  className="w-full px-3 py-2 text-sm bg-gray-700 border border-gray-600 text-gray-100 rounded focus:ring-2 focus:ring-cyan-500 focus:border-transparent placeholder-gray-500"
+                  autoFocus
+                />
+
+                {hasFilter && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setColumnFilters((prev) => ({ ...prev, [column]: '' }));
+                    }}
+                    className="mt-2 text-xs text-cyan-400 hover:text-cyan-300 transition"
+                  >
+                    Clear filter
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </th>
     );
   };
 
@@ -768,14 +1082,37 @@ const StokOpnam = () => {
     profile?.role === 'administrator' || 
     userCategory === 'Koordinator IT Support';
 
+  // Check if user can delete (Administrator or Koordinator IT Support)
+  const canDelete =
+    profile?.role === 'administrator' ||
+    userCategory === 'Koordinator IT Support';
+
+  const handleDeletePerangkat = async (item) => {
+    if (!canDelete) return;
+    if (!confirm(`Hapus perangkat "${item.nama_perangkat || item.id_perangkat}"?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('perangkat')
+        .delete()
+        .eq('id', item.id);
+
+      if (error) throw error;
+      toast.success('✅ Perangkat berhasil dihapus!');
+      fetchPerangkat();
+    } catch (error) {
+      toast.error('❌ Gagal menghapus perangkat: ' + error.message);
+    }
+  };
+
   return (
     <Layout>
-      <div className="space-y-6">
+      <div className="space-y-3">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
           <div>
             <h1 className="text-3xl font-bold text-white">Stok Opnam</h1>
-            <p className="mt-1 text-sm text-white">
+            <p className="mt-0.5 text-sm text-white">
               Kelola dan update data inventaris perangkat IT
             </p>
           </div>
@@ -808,6 +1145,7 @@ const StokOpnam = () => {
                       type="button"
                       onClick={() => {
                         setShowAddForm(false);
+                        setIsSubmittingStep1(false);
                         setStep1Form({ jenis_perangkat_kode: '', serial_number: '', lokasi_kode: '' });
                       }}
                       className="text-gray-400 hover:text-gray-600 transition text-2xl font-bold leading-none"
@@ -897,9 +1235,20 @@ const StokOpnam = () => {
                       </button>
                       <button
                         type="submit"
-                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                        disabled={isSubmittingStep1}
+                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
-                        🔑 Generate ID Perangkat
+                        {isSubmittingStep1 ? (
+                          <>
+                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Memproses...</span>
+                          </>
+                        ) : (
+                          '🔑 Generate ID Perangkat'
+                        )}
                       </button>
                     </div>
                   </form>
@@ -1226,8 +1575,32 @@ const StokOpnam = () => {
               <div className="flex justify-between items-start p-4 border-b border-gray-700">
                 <div>
                   <h2 className="text-xl font-bold text-white">Detail Perangkat</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    <span className="font-mono font-bold text-yellow-300">{viewingDetail.id_perangkat}</span> - {viewingDetail.nama_perangkat}
+                  <p className="text-xs text-gray-400 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="font-mono font-bold text-yellow-300">{viewingDetail.id_perangkat}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(viewingDetail.id_perangkat, 'Perangkat ID')}
+                        className="text-gray-400 hover:text-white transition"
+                        title="Copy Perangkat ID"
+                        aria-label="Copy Perangkat ID"
+                      >
+                        <ClipboardDocumentIcon className="w-4 h-4" />
+                      </button>
+                    </span>
+                    <span className="text-gray-500">-</span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="font-semibold text-gray-200">{viewingDetail.nama_perangkat}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(viewingDetail.nama_perangkat, 'Perangkat Name')}
+                        className="text-gray-400 hover:text-white transition"
+                        title="Copy Perangkat Name"
+                        aria-label="Copy Perangkat Name"
+                      >
+                        <ClipboardDocumentIcon className="w-4 h-4" />
+                      </button>
+                    </span>
                   </p>
                 </div>
                 <button
@@ -1625,6 +1998,7 @@ const StokOpnam = () => {
                   onClick={() => {
                     setEditingId(null);
                     setEditForm({});
+                    setOriginalLokasiKode(null);
                   }}
                   className="text-gray-400 hover:text-gray-600 transition text-2xl font-bold leading-none"
                   title="Tutup"
@@ -1655,11 +2029,10 @@ const StokOpnam = () => {
                     <input
                       type="text"
                       required
+                      disabled
                       value={editForm.nama_perangkat || ''}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, nama_perangkat: e.target.value })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 bg-gray-100 cursor-not-allowed"
+                      title="Nama perangkat otomatis diubah saat lokasi diubah"
                     />
                   </div>
 
@@ -1711,9 +2084,15 @@ const StokOpnam = () => {
                     <select
                       required
                       value={editForm.lokasi_kode || ''}
-                      onChange={(e) =>
-                        setEditForm({ ...editForm, lokasi_kode: e.target.value })
-                      }
+                      onChange={(e) => {
+                        const newLokasiKode = e.target.value;
+                        const newNamaPerangkat = generateNamaPerangkat(newLokasiKode, editForm.id_perangkat);
+                        setEditForm({ 
+                          ...editForm, 
+                          lokasi_kode: newLokasiKode,
+                          nama_perangkat: newNamaPerangkat
+                        });
+                      }}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">-- Pilih Lokasi --</option>
@@ -1920,6 +2299,7 @@ const StokOpnam = () => {
                     onClick={() => {
                       setEditingId(null);
                       setEditForm({});
+                      setOriginalLokasiKode(null);
                     }}
                     className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
                   >
@@ -2070,48 +2450,48 @@ const StokOpnam = () => {
         )}
 
         {/* Search Bar - Sticky (Freeze Panes) */}
-        <div className="sticky top-0 z-10 bg-slate-950 pb-4 pt-2">
-          <div className="bg-gray-800 rounded-xl shadow-lg p-4 border border-gray-700">
-            <div className="flex items-center gap-3">
-              <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-              <input
-                type="text"
-                placeholder="Cari perangkat (ID, Nama, Jenis, Merk, Lokasi, Serial, IP)..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="flex-1 bg-gray-700 border border-gray-600 text-gray-100 px-4 py-2 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent placeholder-gray-400"
-              />
-              {searchTerm && (
-                <button
-                  onClick={() => setSearchTerm('')}
-                  className="text-gray-400 hover:text-white transition"
-                  title="Clear search"
-                >
-                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              )}
-            </div>
-            {/* Search Stats & Items Per Page Selector */}
-            <div className="mt-3 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-              {/* Search Stats */}
-              <div className="text-sm text-gray-400">
-                {searchTerm ? (
-                  <>
-                    Ditemukan <span className="font-semibold text-cyan-400">{filteredPerangkat.length}</span> data
-                  </>
-                ) : (
-                  <>
-                    Total <span className="font-semibold text-cyan-400">{filteredPerangkat.length}</span> data
-                  </>
+        <div className="sticky top-16 lg:top-0 z-10 lg:z-30 bg-slate-950/80 backdrop-blur-md pb-2 pt-1 border-b border-gray-800 shadow-[0_10px_24px_rgba(0,0,0,0.35)]">
+          <div className="bg-gray-800/95 rounded-xl shadow-lg p-3 border border-gray-700">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              {/* Search input */}
+              <div className="flex items-center gap-3 flex-1 min-w-[240px]">
+                <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input
+                  type="text"
+                  placeholder="Cari perangkat (ID, Nama, Jenis, Merk, Lokasi, Serial, IP, Petugas)..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="flex-1 bg-gray-700 border border-gray-600 text-gray-100 px-3 py-1.5 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-transparent placeholder-gray-400"
+                />
+                {searchTerm && (
+                  <button
+                    onClick={() => setSearchTerm('')}
+                    className="text-gray-400 hover:text-white transition"
+                    title="Clear search"
+                  >
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 )}
               </div>
-              
-              {/* Items Per Page Selector */}
-              <div className="flex items-center gap-2">
+
+              {/* Total + Items per page + Refresh */}
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                <div className="text-sm text-gray-400">
+                  {searchTerm ? (
+                    <>
+                      Ditemukan <span className="font-semibold text-cyan-400">{filteredPerangkat.length}</span> data
+                    </>
+                  ) : (
+                    <>
+                      Total <span className="font-semibold text-cyan-400">{filteredPerangkat.length}</span> data
+                    </>
+                  )}
+                </div>
+                <span className="text-gray-600" aria-hidden="true">|</span>
                 <label className="text-sm text-gray-400">Tampilkan:</label>
                 <select
                   value={itemsPerPage}
@@ -2123,6 +2503,16 @@ const StokOpnam = () => {
                   <option value="50">50 per halaman</option>
                   <option value="all">Semua data</option>
                 </select>
+                <button
+                  type="button"
+                  onClick={handleRefreshData}
+                  disabled={loading}
+                  className="inline-flex items-center gap-2 bg-cyan-600/15 border border-cyan-500/40 text-cyan-200 px-3 py-1.5 rounded-lg text-sm hover:bg-cyan-600/25 hover:border-cyan-400/60 focus:ring-2 focus:ring-cyan-500 focus:border-transparent disabled:opacity-60 disabled:cursor-not-allowed"
+                  title="Refresh data"
+                >
+                  <ArrowPathIcon className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Refresh</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2143,66 +2533,18 @@ const StokOpnam = () => {
             <table className="min-w-full divide-y divide-gray-700">
               <thead className="bg-gray-900">
                 <tr>
-                  <th 
-                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
-                    onClick={() => handleSort('id_perangkat')}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      <span>ID Perangkat</span>
-                      <SortIcon column="id_perangkat" />
-                    </div>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase">
+                    ID Perangkat
                   </th>
-                  <th 
-                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
-                    onClick={() => handleSort('nama_perangkat')}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      <span>Nama Perangkat</span>
-                      <SortIcon column="nama_perangkat" />
-                    </div>
-                  </th>
+                  <HeaderMenu column="nama_perangkat" label="Nama Perangkat" placeholder="Cari nama perangkat..." />
                   <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase">
                     ID Remote Access
                   </th>
-                  <th 
-                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
-                    onClick={() => handleSort('tanggal_entry')}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      <span>Tanggal Entry</span>
-                      <SortIcon column="tanggal_entry" />
-                    </div>
-                  </th>
-                  <th 
-                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
-                    onClick={() => handleSort('petugas')}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      <span>Petugas</span>
-                      <SortIcon column="petugas" />
-                    </div>
-                  </th>
-                  <th 
-                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
-                    onClick={() => handleSort('jenis_perangkat')}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      <span>Jenis Perangkat</span>
-                      <SortIcon column="jenis_perangkat" />
-                    </div>
-                  </th>
-                  <th 
-                    className="px-4 py-3 text-center text-xs font-medium text-white uppercase cursor-pointer hover:bg-[#010e29] transition group"
-                    onClick={() => handleSort('jenis_barang')}
-                  >
-                    <div className="flex items-center justify-center gap-1">
-                      <span>Jenis Barang</span>
-                      <SortIcon column="jenis_barang" />
-                    </div>
-                  </th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase">
-                    Status
-                  </th>
+                  <HeaderMenu column="tanggal_entry" label="Tanggal Entry" placeholder="Cari tanggal..." />
+                  <HeaderMenu column="petugas" label="Petugas" placeholder="Cari nama petugas..." />
+                  <HeaderMenu column="jenis_perangkat" label="Jenis Perangkat" placeholder="Cari jenis perangkat..." />
+                  <HeaderMenu column="jenis_barang" label="Jenis Barang" placeholder="Cari jenis barang..." />
+                  <HeaderMenu column="status" label="Status" placeholder="Layak / Rusak" />
                   <th className="px-4 py-3 text-center text-xs font-medium text-white uppercase">
                     Aksi
                   </th>
@@ -2242,7 +2584,7 @@ const StokOpnam = () => {
                           ? 'text-green-500' 
                           : 'text-red-400'
                       }`}>
-                        {item.status_perangkat}
+                        {item.status_perangkat === 'layak' ? 'Layak' : item.status_perangkat === 'rusak' ? 'Rusak' : (item.status_perangkat || '-')}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center text-sm">
@@ -2272,6 +2614,15 @@ const StokOpnam = () => {
                             <ArrowsRightLeftIcon className="w-5 h-5" />
                           </button>
                         )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDeletePerangkat(item)}
+                            className="text-red-400 hover:text-red-300"
+                            title="Hapus perangkat"
+                          >
+                            <TrashIcon className="w-5 h-5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -2286,12 +2637,17 @@ const StokOpnam = () => {
               <div key={item.id} className="p-4 hover:bg-gray-700 transition-colors">
                 <div className="flex justify-between items-start gap-3">
                   <div className="flex-1 space-y-2">
-                    <button
-                      onClick={() => handleViewDetail(item)}
-                      className="text-sm font-mono font-bold text-[#ffae00] bg-gray-900 px-2 py-1 rounded hover:bg-gray-700 transition"
-                    >
-                      {item.id_perangkat}
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button
+                        onClick={() => handleViewDetail(item)}
+                        className="inline-flex items-center justify-center h-8 min-w-[88px] px-3 rounded-lg text-sm font-mono font-bold text-[#ffae00] bg-gray-900 hover:bg-gray-700 transition"
+                      >
+                        {item.id_perangkat}
+                      </button>
+                      <span className="inline-flex items-center justify-center h-8 min-w-[88px] px-3 rounded-lg text-sm text-gray-200 bg-gray-900">
+                        {item.jenis_barang?.nama || '-'}
+                      </span>
+                    </div>
                     <div className="space-y-1 text-sm text-white">
                       <p>
                         <span className="font-medium">Tanggal:</span>{' '}
@@ -2355,13 +2711,14 @@ const StokOpnam = () => {
                 <button
                   onClick={() => handlePageChange(currentPage - 1)}
                   disabled={currentPage === 1}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                  className={`h-10 min-w-10 px-3 inline-flex items-center justify-center rounded-lg text-sm font-medium transition ${
                     currentPage === 1
                       ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                       : 'bg-gray-700 text-white hover:bg-gray-600'
                   }`}
                 >
-                  ← Prev
+                  <span className="sm:hidden">←</span>
+                  <span className="hidden sm:inline">← Prev</span>
                 </button>
 
                 {/* Page Numbers */}
@@ -2377,7 +2734,7 @@ const StokOpnam = () => {
                         <button
                           key={page}
                           onClick={() => handlePageChange(page)}
-                          className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                          className={`h-10 min-w-10 px-3 inline-flex items-center justify-center rounded-lg text-sm font-medium transition ${
                             currentPage === page
                               ? 'bg-cyan-600 text-white'
                               : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -2404,13 +2761,14 @@ const StokOpnam = () => {
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                  className={`h-10 min-w-10 px-3 inline-flex items-center justify-center rounded-lg text-sm font-medium transition ${
                     currentPage === totalPages
                       ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                       : 'bg-gray-700 text-white hover:bg-gray-600'
                   }`}
                 >
-                  Next →
+                  <span className="sm:hidden">→</span>
+                  <span className="hidden sm:inline">Next →</span>
                 </button>
               </div>
             </div>

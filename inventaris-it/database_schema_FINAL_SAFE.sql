@@ -128,30 +128,32 @@ CREATE OR REPLACE FUNCTION generate_id_perangkat(p_kode TEXT)
 RETURNS TEXT AS $$
 DECLARE
   v_tahun TEXT;
-  v_bulan TEXT;
+  v_bulan_single TEXT;
   v_urutan INT;
   v_urutan_str TEXT;
   v_id_perangkat TEXT;
-  v_prefix TEXT;
+  v_max_sequence INT;
 BEGIN
+  -- Global, monotonic sequence based on the last 4 digits across ALL perangkat
+  -- Prevents duplicate "urutan" even across different kode/year/month
   v_tahun := TO_CHAR(NOW(), 'YYYY');
-  v_bulan := TO_CHAR(NOW(), 'MM');
-  v_prefix := p_kode || '.' || v_tahun || '.' || v_bulan || '.';
-  
+  v_bulan_single := TO_CHAR(NOW(), 'FMMM');  -- 1-12 (no leading zero)
+
+  -- Global lock to avoid race conditions in concurrent calls
+  PERFORM pg_advisory_xact_lock(hashtext('perangkat_global_sequence'));
+
   SELECT COALESCE(
-    MAX(
-      CAST(
-        SUBSTRING(id_perangkat FROM LENGTH(v_prefix) + 1) AS INTEGER
-      )
-    ), 0
-  ) + 1
-  INTO v_urutan
+    MAX(CAST(RIGHT(id_perangkat, 4) AS INTEGER)),
+    0
+  )
+  INTO v_max_sequence
   FROM perangkat
-  WHERE id_perangkat LIKE v_prefix || '%';
-  
+  WHERE id_perangkat ~ '^[0-9]{3}\.[0-9]{4}\.[0-9]{1,2}\.[0-9]{4}$';
+
+  v_urutan := v_max_sequence + 1;
   v_urutan_str := LPAD(v_urutan::TEXT, 4, '0');
-  v_id_perangkat := v_prefix || v_urutan_str;
-  
+  v_id_perangkat := p_kode || '.' || v_tahun || '.' || v_bulan_single || '.' || v_urutan_str;
+
   RETURN v_id_perangkat;
 END;
 $$ LANGUAGE plpgsql;

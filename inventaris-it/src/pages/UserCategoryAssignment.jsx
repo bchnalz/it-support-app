@@ -16,6 +16,24 @@ const UserCategoryAssignment = () => {
     fetchData();
   }, []);
 
+  // ESC key handler for modals
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape' && showAssignModal) {
+        setShowAssignModal(false);
+        setSelectedUser(null);
+        setSelectedCategoryId('');
+      }
+    };
+
+    if (showAssignModal) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => {
+        document.removeEventListener('keydown', handleEscKey);
+      };
+    }
+  }, [showAssignModal]);
+
   const fetchData = async () => {
     try {
       setLoading(true);

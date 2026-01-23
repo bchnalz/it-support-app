@@ -18,11 +18,13 @@ CREATE TABLE IF NOT EXISTS profiles (
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 
 -- Policy: User hanya bisa read profile sendiri
+DROP POLICY IF EXISTS "Users can view their own profile" ON profiles;
 CREATE POLICY "Users can view their own profile"
   ON profiles FOR SELECT
   USING (auth.uid() = id);
 
 -- Policy: User bisa update profile sendiri
+DROP POLICY IF EXISTS "Users can update their own profile" ON profiles;
 CREATE POLICY "Users can update their own profile"
   ON profiles FOR UPDATE
   USING (auth.uid() = id);
@@ -49,12 +51,14 @@ CREATE TABLE IF NOT EXISTS perangkat (
 ALTER TABLE perangkat ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Semua authenticated user bisa read perangkat
+DROP POLICY IF EXISTS "All authenticated users can view perangkat" ON perangkat;
 CREATE POLICY "All authenticated users can view perangkat"
   ON perangkat FOR SELECT
   TO authenticated
   USING (true);
 
 -- Policy: Hanya IT Support yang bisa insert/update perangkat
+DROP POLICY IF EXISTS "Only IT Support can insert perangkat" ON perangkat;
 CREATE POLICY "Only IT Support can insert perangkat"
   ON perangkat FOR INSERT
   TO authenticated
@@ -66,6 +70,7 @@ CREATE POLICY "Only IT Support can insert perangkat"
     )
   );
 
+DROP POLICY IF EXISTS "Only IT Support can update perangkat" ON perangkat;
 CREATE POLICY "Only IT Support can update perangkat"
   ON perangkat FOR UPDATE
   TO authenticated
@@ -96,12 +101,14 @@ CREATE TABLE IF NOT EXISTS log_penugasan (
 ALTER TABLE log_penugasan ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Semua authenticated user bisa read log
+DROP POLICY IF EXISTS "All authenticated users can view log_penugasan" ON log_penugasan;
 CREATE POLICY "All authenticated users can view log_penugasan"
   ON log_penugasan FOR SELECT
   TO authenticated
   USING (true);
 
 -- Policy: Hanya Helpdesk yang bisa insert log
+DROP POLICY IF EXISTS "Only Helpdesk can insert log_penugasan" ON log_penugasan;
 CREATE POLICY "Only Helpdesk can insert log_penugasan"
   ON log_penugasan FOR INSERT
   TO authenticated

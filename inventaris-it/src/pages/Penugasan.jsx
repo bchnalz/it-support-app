@@ -18,11 +18,13 @@ const Penugasan = () => {
   const [tasks, setTasks] = useState([]);
   const [heldTasks, setHeldTasks] = useState([]);
   const [availableITSupport, setAvailableITSupport] = useState([]);
+  const [allITSupport, setAllITSupport] = useState([]); // All IT Support with active tasks info
   const [skpCategories, setSkpCategories] = useState([]);
   const [filteredSkpCategories, setFilteredSkpCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [userCategory, setUserCategory] = useState(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedHeldTask, setSelectedHeldTask] = useState(null);
   const [waitingTime, setWaitingTime] = useState({});
@@ -33,11 +35,29 @@ const Penugasan = () => {
   const [selectedTask, setSelectedTask] = useState(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletionReason, setDeletionReason] = useState('');
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editForm, setEditForm] = useState({
+    title: '',
+    description: '',
+    priority: 'normal',
+    skp_category_id: '',
+    relate_perangkat: true,
+    assigned_perangkat: [],
+  });
   
   // NEW: Deletion history modal
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [deletionHistory, setDeletionHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  
+  // Export modal states
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportType, setExportType] = useState('month'); // 'month' or 'daterange'
+  const [exportMonth, setExportMonth] = useState('');
+  const [exportYear, setExportYear] = useState(new Date().getFullYear().toString());
+  const [exportStartDate, setExportStartDate] = useState('');
+  const [exportEndDate, setExportEndDate] = useState('');
+  const [exporting, setExporting] = useState(false);
   
   // Prevent double submission
   const [submitting, setSubmitting] = useState(false);
@@ -48,7 +68,21 @@ const Penugasan = () => {
     priority: 'normal',
     skp_category_id: '',
     assigned_users: [], // Changed from assigned_to to array
-    assigned_perangkat: [], // NEW: Array of selected devices
+    relate_perangkat: true, // Allow tasks without perangkat relation
+    assigned_perangkat: [], // Array of selected devices (optional)
+  });
+
+  const [scheduleForm, setScheduleForm] = useState({
+    title: '',
+    description: '',
+    priority: 'normal',
+    skp_category_id: '',
+    assigned_users: [],
+    scheduled_date: '',
+    scheduled_hour: '',
+    scheduled_minute: '',
+    relate_perangkat: true,
+    assigned_perangkat: [],
   });
 
   // NEW: State for device search
@@ -56,21 +90,24 @@ const Penugasan = () => {
   const [perangkatSearch, setPerangkatSearch] = useState('');
 
   useEffect(() => {
-    if (profile?.id) {
-      fetchUserCategory();
-    }
-  }, [profile?.id]);
-
-  useEffect(() => {
-    // Only fetch on initial load, not on every profile/userCategory change
-    if (profile?.id) {
+    // Fetch user category first, then fetch tasks and other data
+    // This ensures userCategory is set before fetchTasks() runs
+    const initializeData = async () => {
+      if (!profile?.id) return;
+      
+      // First, fetch user category and wait for it to complete
+      const categoryName = await fetchUserCategory();
+      
+      // Then fetch all other data (pass categoryName directly to avoid state timing issues)
       checkPermissions();
-      fetchTasks();
-      fetchHeldTasks();
+      fetchTasks(categoryName);
+      fetchHeldTasks(categoryName);
       fetchAvailableITSupport();
       fetchSKPCategories();
       fetchPerangkat();
-    }
+    };
+    
+    initializeData();
     
     // Cleanup timers on unmount
     return () => {
@@ -78,10 +115,10 @@ const Penugasan = () => {
         if (interval) clearInterval(interval);
       });
     };
-  }, []); // Empty dependency array - only run once on mount
+  }, [profile?.id]); // Run when profile.id changes
 
   const fetchUserCategory = async () => {
-    if (!profile?.id) return;
+    if (!profile?.id) return null;
     
     try {
       const { data, error } = await supabase
@@ -92,10 +129,11 @@ const Penugasan = () => {
       
       if (error) throw error;
       const categoryName = data?.user_category?.name;
-      console.log('[Penugasan] User category fetched:', categoryName);
       setUserCategory(categoryName);
+      return categoryName;
     } catch (error) {
       console.error('Error fetching user category:', error);
+      return null;
     }
   };
 
@@ -133,6 +171,73 @@ const Penugasan = () => {
     });
   }, [heldTasks]);
 
+  // ESC key handler for modals
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape') {
+        if (showAddForm) {
+          setShowAddForm(false);
+          setForm({
+            title: '',
+            description: '',
+            priority: 'normal',
+            skp_category_id: '',
+            assigned_users: [],
+            relate_perangkat: true,
+            assigned_perangkat: [],
+          });
+        } else if (showScheduleModal) {
+          setShowScheduleModal(false);
+          setScheduleForm({
+            title: '',
+            description: '',
+            priority: 'normal',
+            skp_category_id: '',
+            assigned_users: [],
+            scheduled_date: '',
+            scheduled_hour: '',
+            scheduled_minute: '',
+            relate_perangkat: true,
+            assigned_perangkat: [],
+          });
+        } else if (showAssignModal) {
+          setShowAssignModal(false);
+          setSelectedHeldTask(null);
+        } else if (showDetailModal) {
+          setShowDetailModal(false);
+          setSelectedTask(null);
+        } else if (showDeleteModal) {
+          setShowDeleteModal(false);
+          setSelectedTask(null);
+          setDeletionReason('');
+        } else if (showEditModal) {
+          setShowEditModal(false);
+          setEditForm({
+            title: '',
+            description: '',
+            priority: 'normal',
+            skp_category_id: '',
+            relate_perangkat: true,
+            assigned_perangkat: [],
+          });
+        } else if (showHistoryModal) {
+          setShowHistoryModal(false);
+        } else if (showExportModal) {
+          setShowExportModal(false);
+        }
+      }
+    };
+
+    if (showAddForm || showScheduleModal || showAssignModal || showDetailModal || 
+        showDeleteModal || showEditModal || showHistoryModal || showExportModal) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => {
+        document.removeEventListener('keydown', handleEscKey);
+      };
+    }
+  }, [showAddForm, showScheduleModal, showAssignModal, showDetailModal, 
+      showDeleteModal, showEditModal, showHistoryModal, showExportModal]);
+
   useEffect(() => {
     // Filter SKP categories when IT Support is selected
     // Use first selected user for filtering
@@ -148,23 +253,9 @@ const Penugasan = () => {
     return () => clearTimeout(timeoutId);
   }, [form.assigned_users]);
 
-  // Debug: Log user category and profile (only once, not on every change)
-  useEffect(() => {
-    if (userCategory && profile) {
-      console.log('[Penugasan] Current userCategory:', userCategory);
-      console.log('[Penugasan] Current profile role:', profile?.role);
-    }
-  }, []); // Only log once on mount
-
-  const fetchTasks = async () => {
+  const fetchTasks = async (categoryName = null) => {
     try {
       setLoading(true);
-      
-      console.log('[Penugasan] Starting fetchTasks', {
-        user: user?.id,
-        profile: profile?.role,
-        userCategory: userCategory
-      });
       
       // Fetch tasks with assigned users and devices
       // Administrators, Helpdesk, and Koordinator IT Support can see all tasks, other roles see only tasks they created
@@ -183,16 +274,12 @@ const Penugasan = () => {
       
       // Only filter by assigned_by if user is not administrator, helpdesk, or koordinator it support
       // Helpdesk and Koordinator IT Support are identified by user_category, not role
+      // Use provided categoryName or fall back to state value
+      const currentUserCategory = categoryName !== null ? categoryName : userCategory;
       const isAdministrator = profile?.role === 'administrator';
-      const isHelpdesk = userCategory === 'Helpdesk';
-      const isKoordinatorITSupport = userCategory === 'Koordinator IT Support';
+      const isHelpdesk = currentUserCategory === 'Helpdesk';
+      const isKoordinatorITSupport = currentUserCategory === 'Koordinator IT Support';
       
-      console.log('[Penugasan] User permissions:', {
-        isAdministrator,
-        isHelpdesk,
-        isKoordinatorITSupport,
-        willFilter: !isAdministrator && !isHelpdesk && !isKoordinatorITSupport
-      });
       
       if (!isAdministrator && !isHelpdesk && !isKoordinatorITSupport) {
         query = query.eq('assigned_by', user.id);
@@ -200,11 +287,6 @@ const Penugasan = () => {
       
       const { data: tasksData, error: tasksError } = await query;
 
-      console.log('[Penugasan] Query result:', {
-        tasksData: tasksData?.length || 0,
-        error: tasksError,
-        hasData: !!tasksData
-      });
 
       if (tasksError) {
         console.error('[Penugasan] Error fetching tasks:', {
@@ -219,7 +301,6 @@ const Penugasan = () => {
       }
 
       if (!tasksData || tasksData.length === 0) {
-        console.log('[Penugasan] No tasks found');
         setTasks([]);
         setLoading(false);
         return;
@@ -302,6 +383,41 @@ const Penugasan = () => {
               profiles: profileData
             };
           });
+
+          // If task is scheduled, fetch planned assignees (so they can see it before activation)
+          let plannedAssignees = [];
+          let scheduledFor = null;
+          if (task.status === 'scheduled') {
+            const { data: scheduleRow, error: scheduleError } = await supabase
+              .from('task_schedules')
+              .select('id, scheduled_for, status')
+              .eq('task_assignment_id', task.id)
+              .maybeSingle();
+
+            if (!scheduleError && scheduleRow && scheduleRow.status === 'scheduled') {
+              scheduledFor = scheduleRow.scheduled_for;
+
+              const { data: plannedUsers, error: plannedUsersError } = await supabase
+                .from('task_schedule_users')
+                .select('user_id, profiles(id, full_name, email)')
+                .eq('task_schedule_id', scheduleRow.id);
+
+              if (!plannedUsersError) {
+                plannedAssignees = (plannedUsers || []).map(pu => {
+                  const p = Array.isArray(pu.profiles) ? pu.profiles[0] : pu.profiles;
+                  return {
+                    user_id: pu.user_id,
+                    status: 'scheduled',
+                    work_duration_minutes: 0,
+                    acknowledged_at: null,
+                    started_at: null,
+                    completed_at: null,
+                    profiles: p ? { full_name: p.full_name, email: p.email } : null
+                  };
+                });
+              }
+            }
+          }
           
           // If any profiles are missing, fetch them separately
           const missingUserIds = assignedUsersWithProfiles
@@ -338,29 +454,7 @@ const Penugasan = () => {
             }
           }
           
-          // Debug: Log the merge result
-          console.log(`[Penugasan] Task ${task.id} (${task.task_number || 'no-number'}) - After merge:`, {
-            assignedUsersData_length: assignedUsersData?.length || 0,
-            assignedUsersWithProfiles_length: assignedUsersWithProfiles.length,
-            assignedUsersWithProfiles: assignedUsersWithProfiles
-          });
-          
-          // Debug: Log assigned users data
-          if (assignedUsersWithProfiles.length > 0) {
-            console.log(`[Penugasan] Task ${task.id} assigned users:`, assignedUsersWithProfiles);
-            assignedUsersWithProfiles.forEach((au, idx) => {
-              console.log(`[Penugasan] User ${idx + 1}:`, {
-                user_id: au.user_id,
-                status: au.status,
-                profiles: au.profiles,
-                profiles_type: typeof au.profiles,
-                profiles_keys: au.profiles ? Object.keys(au.profiles) : 'N/A',
-                profiles_full_name: au.profiles?.full_name,
-              });
-            });
-          } else {
-            console.log(`[Penugasan] Task ${task.id} has no assigned users`);
-          }
+          // (removed debug logging)
           
           const { data: devicesData } = await supabase
             .from('task_assignment_perangkat')
@@ -370,68 +464,17 @@ const Penugasan = () => {
             `)
             .eq('task_assignment_id', task.id);
 
-          // Debug: Check if task already has assigned_users that might conflict
-          if (task.assigned_users) {
-            console.warn(`[Penugasan] Task ${task.id} already has assigned_users property:`, task.assigned_users);
-          }
-          
-          // Debug: Verify assignedUsersWithProfiles before creating finalTask
-          console.log(`[Penugasan] Task ${task.id} - BEFORE creating finalTask:`, {
-            assignedUsersWithProfiles_length: assignedUsersWithProfiles.length,
-            assignedUsersWithProfiles: assignedUsersWithProfiles,
-            assignedUsersData_length: assignedUsersData?.length || 0
-          });
-          
           const finalTask = {
             ...task,
-            assigned_users: assignedUsersWithProfiles || [],
+            assigned_users: task.status === 'scheduled' ? (plannedAssignees || []) : (assignedUsersWithProfiles || []),
             assigned_devices: devicesData || [],
+            scheduled_for: scheduledFor,
           };
-          
-          // Debug: Verify what we're returning
-          console.log(`[Penugasan] Task ${task.id} (${task.task_number || 'no-number'}) - Final return object:`, {
-            task_id: finalTask.id,
-            task_number: finalTask.task_number,
-            has_assigned_users: !!finalTask.assigned_users,
-            assigned_users_length: finalTask.assigned_users?.length || 0,
-            assigned_users: finalTask.assigned_users,
-            // Also log the source data to compare
-            source_assignedUsersData_length: assignedUsersData?.length || 0,
-            source_assignedUsersWithProfiles_length: assignedUsersWithProfiles.length,
-            // Check if they match
-            data_matches: finalTask.assigned_users.length === assignedUsersWithProfiles.length
-          });
-          
           return finalTask;
         })
       );
-
-      console.log('[Penugasan] Setting tasks with users:', tasksWithUsers.length, 'tasks');
-      tasksWithUsers.forEach((task, idx) => {
-        console.log(`[Penugasan] Task ${idx + 1} (${task.task_number || task.id}):`, {
-          has_assigned_users: !!task.assigned_users,
-          assigned_users_length: task.assigned_users?.length || 0,
-          assigned_users: task.assigned_users,
-        });
-        if (task.assigned_users && task.assigned_users.length > 0) {
-          console.log(`[Penugasan] Task ${idx + 1} (${task.task_number}) has ${task.assigned_users.length} assigned users:`, 
-            task.assigned_users.map(au => ({
-              user_id: au.user_id,
-              has_profile: !!au.profiles,
-              profile_name: au.profiles?.full_name || 'NO PROFILE',
-              profiles_object: au.profiles
-            }))
-          );
-        } else {
-          console.log(`[Penugasan] Task ${idx + 1} (${task.task_number || task.id}) has NO assigned users`);
-        }
-      });
       
       setTasks(tasksWithUsers);
-      
-      if (tasksWithUsers.length === 0) {
-        console.log('[Penugasan] No tasks to display');
-      }
     } catch (error) {
       console.error('Error fetching tasks:', error.message);
       toast.error('❌ Gagal memuat tugas: ' + error.message);
@@ -440,7 +483,7 @@ const Penugasan = () => {
     }
   };
 
-  const fetchHeldTasks = async () => {
+  const fetchHeldTasks = async (categoryName = null) => {
     try {
       // Administrators, Helpdesk, and Koordinator IT Support can see all held tasks, other roles see only tasks they created
       let query = supabase
@@ -449,9 +492,11 @@ const Penugasan = () => {
       
       // Only filter by assigned_by if user is not administrator, helpdesk, or koordinator it support
       // Helpdesk and Koordinator IT Support are identified by user_category, not role
+      // Use provided categoryName or fall back to state value
+      const currentUserCategory = categoryName !== null ? categoryName : userCategory;
       const isAdministrator = profile?.role === 'administrator';
-      const isHelpdesk = userCategory === 'Helpdesk';
-      const isKoordinatorITSupport = userCategory === 'Koordinator IT Support';
+      const isHelpdesk = currentUserCategory === 'Helpdesk';
+      const isKoordinatorITSupport = currentUserCategory === 'Koordinator IT Support';
       
       if (!isAdministrator && !isHelpdesk && !isKoordinatorITSupport) {
         query = query.eq('assigned_by', user.id);
@@ -480,6 +525,95 @@ const Penugasan = () => {
       setAvailableITSupport(data || []);
     } catch (error) {
       console.error('Error fetching IT Support:', error.message);
+      toast.error('❌ Gagal memuat daftar IT Support: ' + error.message);
+    }
+  };
+
+  const fetchAllITSupport = async () => {
+    try {
+      // Fetch all IT Support and Koordinator IT Support users by checking user_categories
+      const { data: userCategoriesData, error: categoriesError } = await supabase
+        .from('user_categories')
+        .select('id, name')
+        .in('name', ['IT Support', 'Koordinator IT Support']);
+
+      if (categoriesError) throw categoriesError;
+
+      if (!userCategoriesData || userCategoriesData.length === 0) {
+        setAllITSupport([]);
+        return;
+      }
+
+      const categoryIds = userCategoriesData.map(cat => cat.id);
+
+      // Fetch all profiles with IT Support or Koordinator IT Support category
+      const { data: profilesData, error: profilesError } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, user_category_id')
+        .in('user_category_id', categoryIds)
+        .order('full_name');
+
+      if (profilesError) throw profilesError;
+
+      if (!profilesData || profilesData.length === 0) {
+        setAllITSupport([]);
+        return;
+      }
+
+      // Fetch active tasks for each IT Support user
+      const itSupportWithTasks = await Promise.all(
+        profilesData.map(async (profile) => {
+          // Get active tasks for this user (tasks assigned to them that are not completed/cancelled)
+          const { data: activeTasksData, error: tasksError } = await supabase
+            .from('task_assignment_users')
+            .select(`
+              task_assignment_id,
+              status,
+              task_assignments!inner(
+                task_number,
+                title,
+                status
+              )
+            `)
+            .eq('user_id', profile.id)
+            .in('status', ['pending', 'acknowledged', 'in_progress', 'paused']);
+
+          if (tasksError) {
+            console.error(`Error fetching tasks for ${profile.id}:`, tasksError);
+          }
+
+
+          const activeTasks = (activeTasksData || []).map(t => {
+            // Handle different response formats from Supabase
+            let taskData = null;
+            if (t.task_assignments) {
+              taskData = Array.isArray(t.task_assignments) 
+                ? t.task_assignments[0] 
+                : t.task_assignments;
+            }
+            
+            return {
+              task_number: taskData?.task_number || null,
+              title: taskData?.title || null,
+              status: taskData?.status || t.status
+            };
+          }).filter(t => t.task_number); // Filter out nulls
+
+          // (removed debug logging)
+
+          return {
+            id: profile.id,
+            name: profile.full_name,
+            email: profile.email,
+            activeTasks: activeTasks,
+            isAvailable: activeTasks.length === 0
+          };
+        })
+      );
+
+      setAllITSupport(itSupportWithTasks);
+    } catch (error) {
+      console.error('Error fetching all IT Support:', error.message);
       toast.error('❌ Gagal memuat daftar IT Support: ' + error.message);
     }
   };
@@ -586,13 +720,127 @@ const Penugasan = () => {
       priority: 'normal',
       skp_category_id: '',
       assigned_users: [],
+      relate_perangkat: true,
       assigned_perangkat: [],
     });
     setPerangkatSearch('');
     setShowAddForm(true);
     // Refresh data when opening form
-    fetchAvailableITSupport();
+    fetchAllITSupport(); // Fetch all IT Support with active tasks
     fetchPerangkat();
+  };
+
+  const handleOpenSchedule = () => {
+    setPerangkatSearch('');
+    setShowScheduleModal(true);
+    fetchAllITSupport();
+    fetchPerangkat();
+  };
+
+  const handleSubmitSchedule = async (e) => {
+    e.preventDefault();
+    if (submitting) return;
+
+    if (scheduleForm.assigned_users.length === 0) {
+      toast.warning('Silakan pilih minimal 1 IT Support');
+      return;
+    }
+    if (!scheduleForm.skp_category_id) {
+      toast.warning('Silakan pilih kategori SKP');
+      return;
+    }
+    if (!scheduleForm.scheduled_date || scheduleForm.scheduled_hour === '' || scheduleForm.scheduled_minute === '') {
+      toast.warning('Silakan pilih tanggal & jam jadwal');
+      return;
+    }
+    if (scheduleForm.relate_perangkat && scheduleForm.assigned_perangkat.length === 0) {
+      toast.warning('Silakan pilih minimal 1 perangkat');
+      return;
+    }
+
+    const hh = String(scheduleForm.scheduled_hour).padStart(2, '0');
+    const mm = String(scheduleForm.scheduled_minute).padStart(2, '0');
+    const scheduledForIso = new Date(`${scheduleForm.scheduled_date}T${hh}:${mm}:00`).toISOString();
+
+    setSubmitting(true);
+    try {
+      // 1) Create the task itself, as scheduled
+      const { data: taskData, error: taskError } = await supabase
+        .from('task_assignments')
+        .insert([{
+          title: scheduleForm.title,
+          description: scheduleForm.description,
+          priority: scheduleForm.priority,
+          skp_category_id: scheduleForm.skp_category_id,
+          assigned_by: user.id,
+          status: 'scheduled',
+        }])
+        .select()
+        .single();
+
+      if (taskError) throw taskError;
+
+      // 2) Create schedule row
+      const { data: scheduleData, error: scheduleError } = await supabase
+        .from('task_schedules')
+        .insert([{
+          task_assignment_id: taskData.id,
+          scheduled_by: user.id,
+          scheduled_for: scheduledForIso,
+          status: 'scheduled',
+        }])
+        .select()
+        .single();
+
+      if (scheduleError) throw scheduleError;
+
+      // 3) Planned assignees
+      const plannedUserInserts = scheduleForm.assigned_users.map(userId => ({
+        task_schedule_id: scheduleData.id,
+        user_id: userId,
+      }));
+
+      const { error: plannedUsersError } = await supabase
+        .from('task_schedule_users')
+        .insert(plannedUserInserts);
+
+      if (plannedUsersError) throw plannedUsersError;
+
+      // 4) Devices (optional, same as normal)
+      if (scheduleForm.relate_perangkat && scheduleForm.assigned_perangkat.length > 0) {
+        const deviceInserts = scheduleForm.assigned_perangkat.map(perangkatId => ({
+          task_assignment_id: taskData.id,
+          perangkat_id: perangkatId,
+        }));
+
+        const { error: devicesError } = await supabase
+          .from('task_assignment_perangkat')
+          .insert(deviceInserts);
+
+        if (devicesError) throw devicesError;
+      }
+
+      toast.success('⏰ Tugas berhasil dijadwalkan!');
+      setShowScheduleModal(false);
+      setScheduleForm({
+        title: '',
+        description: '',
+        priority: 'normal',
+        skp_category_id: '',
+        assigned_users: [],
+        scheduled_date: '',
+        scheduled_hour: '',
+        scheduled_minute: '',
+        relate_perangkat: true,
+        assigned_perangkat: [],
+      });
+      setPerangkatSearch('');
+      fetchTasks();
+    } catch (error) {
+      toast.error('❌ Gagal menjadwalkan tugas: ' + error.message);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -613,7 +861,7 @@ const Penugasan = () => {
       return;
     }
 
-    if (form.assigned_perangkat.length === 0) {
+    if (form.relate_perangkat && form.assigned_perangkat.length === 0) {
       toast.warning('Silakan pilih minimal 1 perangkat');
       return;
     }
@@ -650,19 +898,21 @@ const Penugasan = () => {
 
       if (usersError) throw usersError;
 
-      // 3. Insert assigned devices
-      const deviceInserts = form.assigned_perangkat.map(perangkatId => ({
-        task_assignment_id: taskData.id,
-        perangkat_id: perangkatId,
-      }));
+      // 3. Insert assigned devices (optional)
+      if (form.relate_perangkat && form.assigned_perangkat.length > 0) {
+        const deviceInserts = form.assigned_perangkat.map(perangkatId => ({
+          task_assignment_id: taskData.id,
+          perangkat_id: perangkatId,
+        }));
 
-      const { error: devicesError } = await supabase
-        .from('task_assignment_perangkat')
-        .insert(deviceInserts);
+        const { error: devicesError } = await supabase
+          .from('task_assignment_perangkat')
+          .insert(deviceInserts);
 
-      if (devicesError) throw devicesError;
+        if (devicesError) throw devicesError;
+      }
 
-      toast.success(`✅ Tugas berhasil dibuat! (${form.assigned_users.length} petugas, ${form.assigned_perangkat.length} perangkat)`);
+      toast.success(`✅ Tugas berhasil dibuat! (${form.assigned_users.length} petugas, ${form.relate_perangkat ? form.assigned_perangkat.length : 0} perangkat)`);
       setShowAddForm(false);
       setForm({
         title: '',
@@ -670,6 +920,7 @@ const Penugasan = () => {
         priority: 'normal',
         skp_category_id: '',
         assigned_users: [],
+        relate_perangkat: true,
         assigned_perangkat: [],
       });
       setPerangkatSearch('');
@@ -737,7 +988,7 @@ const Penugasan = () => {
   const handleAssignHeldTask = (task) => {
     setSelectedHeldTask(task);
     setShowAssignModal(true);
-    fetchAvailableITSupport(); // Refresh available IT Support
+    fetchAllITSupport(); // Fetch all IT Support with active tasks
   };
 
   const handleSubmitAssignment = async (itSupportId) => {
@@ -748,7 +999,8 @@ const Penugasan = () => {
       const createdAt = new Date(selectedHeldTask.created_at);
       const waitingMinutes = Math.floor((Date.now() - createdAt.getTime()) / 60000);
 
-      const { error } = await supabase
+      // 1. Update task assignment status
+      const { error: taskError } = await supabase
         .from('task_assignments')
         .update({
           assigned_to: itSupportId,
@@ -758,7 +1010,18 @@ const Penugasan = () => {
         })
         .eq('id', selectedHeldTask.id);
 
-      if (error) throw error;
+      if (taskError) throw taskError;
+
+      // 2. Create task_assignment_users row (SKP is already set on the task, no need to select)
+      const { error: userError } = await supabase
+        .from('task_assignment_users')
+        .insert([{
+          task_assignment_id: selectedHeldTask.id,
+          user_id: itSupportId,
+          status: 'pending',
+        }]);
+
+      if (userError) throw userError;
 
       toast.success('✅ Tugas berhasil di-assign!');
       setShowAssignModal(false);
@@ -799,6 +1062,7 @@ const Penugasan = () => {
 
   const getStatusBadge = (status) => {
     const badges = {
+      scheduled: 'bg-cyan-100 text-cyan-800 border-2 border-cyan-300',
       on_hold: 'bg-orange-100 text-orange-800 border-2 border-orange-300',
       pending: 'bg-yellow-100 text-yellow-800',
       acknowledged: 'bg-blue-100 text-blue-800',
@@ -809,6 +1073,7 @@ const Penugasan = () => {
     };
     
     const labels = {
+      scheduled: '⏰ Dijadwalkan',
       on_hold: '⏳ On Hold',
       pending: 'Menunggu',
       acknowledged: 'Dikonfirmasi',
@@ -898,6 +1163,84 @@ const Penugasan = () => {
     setShowDetailModal(true);
   };
 
+  const canEditAnyTask = profile?.role === 'administrator' || userCategory === 'Helpdesk';
+
+  const handleOpenEdit = (task) => {
+    if (!task) return;
+    setSelectedTask(task);
+    setEditForm({
+      title: task.title || '',
+      description: task.description || '',
+      priority: task.priority || 'normal',
+      skp_category_id: task.skp_category_id || '',
+      relate_perangkat: (task.assigned_devices?.length || 0) > 0,
+      assigned_perangkat: (task.assigned_devices || []).map(d => d.perangkat_id).filter(Boolean),
+    });
+    setPerangkatSearch('');
+    fetchPerangkat();
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedTask) return;
+
+    if (!editForm.title.trim()) {
+      toast.warning('Judul tugas wajib diisi');
+      return;
+    }
+    if (!editForm.skp_category_id) {
+      toast.warning('Silakan pilih kategori SKP');
+      return;
+    }
+    if (editForm.relate_perangkat && editForm.assigned_perangkat.length === 0) {
+      toast.warning('Silakan pilih minimal 1 perangkat atau matikan relasi perangkat');
+      return;
+    }
+
+    try {
+      const { error: updateError } = await supabase
+        .from('task_assignments')
+        .update({
+          title: editForm.title,
+          description: editForm.description,
+          priority: editForm.priority,
+          skp_category_id: editForm.skp_category_id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', selectedTask.id);
+      if (updateError) throw updateError;
+
+      // Sync perangkat relation
+      const { error: deleteDevicesError } = await supabase
+        .from('task_assignment_perangkat')
+        .delete()
+        .eq('task_assignment_id', selectedTask.id);
+      if (deleteDevicesError) throw deleteDevicesError;
+
+      if (editForm.relate_perangkat && editForm.assigned_perangkat.length > 0) {
+        const inserts = editForm.assigned_perangkat.map((pid) => ({
+          task_assignment_id: selectedTask.id,
+          perangkat_id: pid,
+        }));
+        const { error: insertDevicesError } = await supabase
+          .from('task_assignment_perangkat')
+          .insert(inserts);
+        if (insertDevicesError) throw insertDevicesError;
+      }
+
+      toast.success('✅ Penugasan berhasil diperbarui');
+      setShowEditModal(false);
+      fetchTasks();
+    } catch (error) {
+      const msg = (error?.message || '').toLowerCase();
+      if (msg.includes('row-level security') || msg.includes('permission') || error?.code === '42501') {
+        toast.error('❌ Gagal update (RLS). Jalankan script `FIX_TASK_EDIT_RLS.sql` di Supabase SQL Editor.');
+      } else {
+        toast.error('❌ Gagal update penugasan: ' + (error?.message || 'Unknown error'));
+      }
+    }
+  };
+
   // NEW: Handle delete task
   const handleDeleteClick = (task) => {
     setSelectedTask(task);
@@ -967,6 +1310,245 @@ const Penugasan = () => {
     fetchDeletionHistory();
   };
 
+  const handleOpenExport = () => {
+    const now = new Date();
+    setExportMonth((now.getMonth() + 1).toString().padStart(2, '0'));
+    setExportYear(now.getFullYear().toString());
+    setExportStartDate('');
+    setExportEndDate('');
+    setExportType('month');
+    setShowExportModal(true);
+  };
+
+  const handleExport = async () => {
+    if (exportType === 'month') {
+      if (!exportMonth || !exportYear) {
+        toast.warning('Silakan pilih bulan dan tahun');
+        return;
+      }
+    } else {
+      if (!exportStartDate || !exportEndDate) {
+        toast.warning('Silakan pilih tanggal mulai dan tanggal akhir');
+        return;
+      }
+      if (new Date(exportStartDate) > new Date(exportEndDate)) {
+        toast.warning('Tanggal mulai harus lebih kecil dari tanggal akhir');
+        return;
+      }
+    }
+
+    setExporting(true);
+    try {
+      let query = supabase
+        .from('task_assignments')
+        .select(`
+          *,
+          skp_category:skp_categories(code, name),
+          assigned_by_profile:profiles!task_assignments_assigned_by_fkey(full_name, email)
+        `)
+        .order('created_at', { ascending: false });
+
+      // Apply date filter
+      if (exportType === 'month') {
+        const startOfMonth = new Date(parseInt(exportYear), parseInt(exportMonth) - 1, 1);
+        const endOfMonth = new Date(parseInt(exportYear), parseInt(exportMonth), 0, 23, 59, 59, 999);
+        query = query
+          .gte('created_at', startOfMonth.toISOString())
+          .lte('created_at', endOfMonth.toISOString());
+      } else {
+        const startDate = new Date(exportStartDate);
+        startDate.setHours(0, 0, 0, 0);
+        const endDate = new Date(exportEndDate);
+        endDate.setHours(23, 59, 59, 999);
+        query = query
+          .gte('created_at', startDate.toISOString())
+          .lte('created_at', endDate.toISOString());
+      }
+
+      // Only filter by assigned_by if user is not administrator, helpdesk, or koordinator it support
+      const isAdministrator = profile?.role === 'administrator';
+      const isHelpdesk = userCategory === 'Helpdesk';
+      const isKoordinatorITSupport = userCategory === 'Koordinator IT Support';
+      
+      if (!isAdministrator && !isHelpdesk && !isKoordinatorITSupport) {
+        query = query.eq('assigned_by', user.id);
+      }
+
+      const { data: tasksData, error: tasksError } = await query;
+
+      if (tasksError) throw tasksError;
+
+      if (!tasksData || tasksData.length === 0) {
+        toast.warning('Tidak ada data untuk diekspor');
+        setExporting(false);
+        return;
+      }
+
+      // Fetch assigned users and devices for each task
+      const tasksWithDetails = await Promise.all(
+        tasksData.map(async (task) => {
+          // Fetch assigned users
+          const { data: assignedUsersData } = await supabase
+            .from('task_assignment_users')
+            .select(`
+              user_id,
+              status,
+              work_duration_minutes,
+              acknowledged_at,
+              started_at,
+              completed_at,
+              profiles!task_assignment_users_user_id_fkey(full_name, email)
+            `)
+            .eq('task_assignment_id', task.id);
+
+          const assignedUsers = (assignedUsersData || []).map(au => ({
+            name: au.profiles?.full_name || 'Unknown',
+            email: au.profiles?.email || '',
+            status: au.status,
+            duration: au.work_duration_minutes || 0,
+            acknowledged_at: au.acknowledged_at,
+            started_at: au.started_at,
+            completed_at: au.completed_at
+          }));
+
+          // Fetch assigned devices
+          const { data: devicesData } = await supabase
+            .from('task_assignment_perangkat')
+            .select(`
+              perangkat_id,
+              perangkat!task_assignment_perangkat_perangkat_id_fkey(id_perangkat, nama_perangkat)
+            `)
+            .eq('task_assignment_id', task.id);
+
+          const assignedDevices = (devicesData || []).map(ad => ({
+            id_perangkat: ad.perangkat?.id_perangkat || '-',
+            nama_perangkat: ad.perangkat?.nama_perangkat || '-'
+          }));
+
+          return {
+            ...task,
+            assigned_users: assignedUsers,
+            assigned_devices: assignedDevices
+          };
+        })
+      );
+
+      // Generate CSV
+      const csvRows = [];
+      
+      // Header
+      csvRows.push([
+        'No. Tugas',
+        'Judul',
+        'Deskripsi',
+        'Status',
+        'Prioritas',
+        'Kategori SKP',
+        'Dibuat oleh',
+        'Tanggal Dibuat',
+        'Tanggal Ditugaskan',
+        'Tanggal Direspon',
+        'Tanggal Dimulai',
+        'Tanggal Selesai',
+        'Durasi (menit)',
+        'Petugas IT Support',
+        'Perangkat Ditugaskan'
+      ].join(','));
+
+      // Data rows
+      tasksWithDetails.forEach(task => {
+        const assignedUsersStr = task.assigned_users
+          .map(u => `${u.name} (${u.email})`)
+          .join('; ');
+        const assignedDevicesStr = task.assigned_devices
+          .map(d => `${d.id_perangkat} - ${d.nama_perangkat}`)
+          .join('; ');
+
+        const formatDateForCSV = (dateStr) => {
+          if (!dateStr) return '';
+          const date = new Date(dateStr);
+          return date.toLocaleString('id-ID', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          });
+        };
+
+        // Get earliest acknowledged_at and started_at from assigned users if task-level is empty
+        const earliestAcknowledgedAt = task.acknowledged_at || 
+          (task.assigned_users.length > 0 
+            ? task.assigned_users
+                .map(u => u.acknowledged_at)
+                .filter(Boolean)
+                .sort()[0]
+            : null);
+        
+        const earliestStartedAt = task.started_at || 
+          (task.assigned_users.length > 0
+            ? task.assigned_users
+                .map(u => u.started_at)
+                .filter(Boolean)
+                .sort()[0]
+            : null);
+        
+        // Get latest completed_at from assigned users if task-level is empty
+        const latestCompletedAt = task.completed_at ||
+          (task.assigned_users.length > 0
+            ? task.assigned_users
+                .map(u => u.completed_at)
+                .filter(Boolean)
+                .sort()
+                .reverse()[0]
+            : null);
+
+        csvRows.push([
+          `"${task.task_number || ''}"`,
+          `"${(task.title || '').replace(/"/g, '""')}"`,
+          `"${(task.description || '').replace(/"/g, '""')}"`,
+          `"${task.status || ''}"`,
+          `"${task.priority || ''}"`,
+          `"${task.skp_category?.name || ''}"`,
+          `"${task.assigned_by_profile?.full_name || ''}"`,
+          `"${formatDateForCSV(task.created_at)}"`,
+          `"${formatDateForCSV(task.assigned_at)}"`,
+          `"${formatDateForCSV(earliestAcknowledgedAt)}"`,
+          `"${formatDateForCSV(earliestStartedAt)}"`,
+          `"${formatDateForCSV(latestCompletedAt)}"`,
+          task.total_duration_minutes || 0,
+          `"${assignedUsersStr}"`,
+          `"${assignedDevicesStr}"`
+        ].join(','));
+      });
+
+      // Create and download CSV
+      const csvContent = csvRows.join('\n');
+      const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const filename = exportType === 'month' 
+        ? `penugasan_${exportMonth}_${exportYear}.csv`
+        : `penugasan_${exportStartDate}_${exportEndDate}.csv`;
+      
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast.success(`✅ Data berhasil diekspor! (${tasksWithDetails.length} tugas)`);
+      setShowExportModal(false);
+    } catch (error) {
+      console.error('Error exporting data:', error);
+      toast.error('❌ Gagal mengekspor data: ' + error.message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -981,30 +1563,46 @@ const Penugasan = () => {
     <Layout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Penugasan</h1>
-            <p className="mt-1 text-sm text-gray-500">
-              Buat dan kelola tugas untuk IT Support
-            </p>
-          </div>
-          <div className="flex gap-2">
+        <div className="flex justify-end mb-4">
+          <div className="inline-flex rounded-lg border border-cyan-500/40 overflow-hidden">
+            <button
+              onClick={() => fetchTasks()}
+              className="bg-cyan-600/15 hover:bg-cyan-600/25 border-r border-cyan-500/40 hover:border-cyan-400/60 text-cyan-200 px-4 py-2 font-medium transition"
+              title="Refresh table"
+            >
+              🔄 Refresh
+            </button>
+            <button
+              onClick={handleOpenExport}
+              className="bg-cyan-600/15 hover:bg-cyan-600/25 border-r border-cyan-500/40 hover:border-cyan-400/60 text-cyan-200 px-4 py-2 font-medium transition"
+              title="Export data penugasan"
+            >
+              Export Data
+            </button>
             {permissions.canDelete && (
               <button
                 onClick={handleOpenHistory}
-                className="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-medium transition flex items-center gap-2"
+                className="bg-cyan-600/15 hover:bg-cyan-600/25 border-r border-cyan-500/40 hover:border-cyan-400/60 text-cyan-200 px-4 py-2 font-medium transition"
                 title="Lihat history tugas yang dihapus"
               >
-                🗑️ History Sampah
+                History Sampah
               </button>
             )}
             {permissions.canCreate && (
-              <button
-                onClick={handleAdd}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition"
-              >
-                + Buat Tugas Baru
-              </button>
+              <>
+                <button
+                  onClick={handleOpenSchedule}
+                  className="bg-cyan-600/15 hover:bg-cyan-600/25 border-r border-cyan-500/40 hover:border-cyan-400/60 text-cyan-200 px-6 py-2 font-medium transition"
+                >
+                  Jadwalkan Tugas
+                </button>
+                <button
+                  onClick={handleAdd}
+                  className="bg-cyan-600/15 hover:bg-cyan-600/25 text-cyan-200 px-6 py-2 font-medium transition"
+                >
+                  Buat Tugas Baru
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -1057,6 +1655,18 @@ const Penugasan = () => {
                     {getPriorityBadge(selectedTask.priority)}
                   </div>
                 </div>
+
+                {/* Scheduled time (read-only until activated) */}
+                {selectedTask.status === 'scheduled' && selectedTask.scheduled_for && (
+                  <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-3">
+                    <p className="text-sm text-cyan-800">
+                      ⏰ Dijadwalkan untuk: <span className="font-mono font-semibold">{formatDate(selectedTask.scheduled_for)}</span>
+                    </p>
+                    <p className="text-xs text-cyan-700 mt-1">
+                      Aksi (start/progress) akan muncul setelah waktu jadwal tiba dan status berubah menjadi <span className="font-mono">pending</span>.
+                    </p>
+                  </div>
+                )}
 
                 {/* SKP Category */}
                 <div>
@@ -1237,6 +1847,14 @@ const Penugasan = () => {
 
               {/* Actions */}
               <div className="flex gap-3 justify-end pt-6 border-t mt-6">
+                {canEditAnyTask && (
+                  <button
+                    onClick={() => handleOpenEdit(selectedTask)}
+                    className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition text-sm"
+                  >
+                    ✏️ Edit
+                  </button>
+                )}
                 {selectedTask.status === 'pending' && permissions.canDelete && (
                   <button
                     onClick={() => {
@@ -1256,6 +1874,178 @@ const Penugasan = () => {
                   className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition"
                 >
                   Tutup
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* EDIT MODAL (Admin & Helpdesk) */}
+        {showEditModal && selectedTask && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 my-8">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-2xl font-bold text-gray-900">✏️ Edit Penugasan</h2>
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="text-gray-400 hover:text-gray-600 text-2xl font-bold leading-none"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Judul *</label>
+                  <input
+                    type="text"
+                    value={editForm.title}
+                    onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Deskripsi</label>
+                  <textarea
+                    rows={4}
+                    value={editForm.description}
+                    onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Prioritas</label>
+                    <select
+                      value={editForm.priority}
+                      onChange={(e) => setEditForm({ ...editForm, priority: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    >
+                      <option value="low">Rendah</option>
+                      <option value="normal">Normal</option>
+                      <option value="high">Tinggi</option>
+                      <option value="urgent">Mendesak</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Kategori SKP *</label>
+                    <select
+                      value={editForm.skp_category_id}
+                      onChange={(e) => setEditForm({ ...editForm, skp_category_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    >
+                      <option value="">-- Pilih SKP --</option>
+                      {skpCategories.map((skp) => (
+                        <option key={skp.id} value={skp.id}>
+                          {skp.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                  <p className="text-sm text-gray-700 font-medium mb-2">👤 Petugas IT Support (tidak diubah)</p>
+                  <div className="text-sm text-gray-700">
+                    {(selectedTask.assigned_users || []).length > 0
+                      ? selectedTask.assigned_users.map((u, idx) => (
+                          <div key={idx}>
+                            - {u.profiles?.full_name || 'Unknown'} {u.profiles?.email ? `(${u.profiles.email})` : ''}
+                          </div>
+                        ))
+                      : '-'}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-2">
+                    <input
+                      type="checkbox"
+                      checked={!!editForm.relate_perangkat}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setEditForm({
+                          ...editForm,
+                          relate_perangkat: checked,
+                          assigned_perangkat: checked ? editForm.assigned_perangkat : [],
+                        });
+                      }}
+                      className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                    />
+                    Relasi ke Perangkat? (opsional)
+                  </label>
+
+                  {editForm.relate_perangkat ? (
+                    <>
+                      <input
+                        type="text"
+                        placeholder="Cari ID Perangkat..."
+                        value={perangkatSearch}
+                        onChange={(e) => setPerangkatSearch(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent mb-2"
+                      />
+                      <div className="space-y-2 max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-lg p-3">
+                        {perangkatList
+                          .filter(p =>
+                            p.id_perangkat.toLowerCase().includes(perangkatSearch.toLowerCase()) ||
+                            (p.nama_perangkat && p.nama_perangkat.toLowerCase().includes(perangkatSearch.toLowerCase()))
+                          )
+                          .map((perangkat) => (
+                            <label key={perangkat.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-2 rounded">
+                              <input
+                                type="checkbox"
+                                checked={editForm.assigned_perangkat.includes(perangkat.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setEditForm({
+                                      ...editForm,
+                                      assigned_perangkat: [...editForm.assigned_perangkat, perangkat.id],
+                                    });
+                                  } else {
+                                    setEditForm({
+                                      ...editForm,
+                                      assigned_perangkat: editForm.assigned_perangkat.filter(id => id !== perangkat.id),
+                                    });
+                                  }
+                                }}
+                                className="w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
+                              />
+                              <span className="text-sm flex-1">
+                                <span className="font-mono font-semibold text-yellow-700">{perangkat.id_perangkat}</span>
+                                {perangkat.nama_perangkat && ` - ${perangkat.nama_perangkat}`}
+                              </span>
+                            </label>
+                          ))}
+                      </div>
+                      {editForm.assigned_perangkat.length > 0 && (
+                        <p className="text-xs text-indigo-600 mt-1">
+                          ✅ {editForm.assigned_perangkat.length} perangkat dipilih
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm text-gray-600">
+                      Perangkat tidak diperlukan untuk tugas ini.
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-6 border-t mt-6">
+                <button
+                  onClick={() => setShowEditModal(false)}
+                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
+                >
+                  Simpan
                 </button>
               </div>
             </div>
@@ -1436,11 +2226,187 @@ const Penugasan = () => {
           </div>
         )}
 
+        {/* EXPORT MODAL */}
+        {showExportModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-2xl font-bold text-gray-900">📥 Export Data Penugasan</h2>
+                <button
+                  onClick={() => {
+                    setShowExportModal(false);
+                    setExportMonth('');
+                    setExportYear(new Date().getFullYear().toString());
+                    setExportStartDate('');
+                    setExportEndDate('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600 text-2xl font-bold leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              
+              <div className="space-y-4">
+                {/* Export Type Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Pilih metode export:
+                  </label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="exportType"
+                        value="month"
+                        checked={exportType === 'month'}
+                        onChange={(e) => setExportType(e.target.value)}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <span className="text-sm text-gray-700">By Month</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="exportType"
+                        value="daterange"
+                        checked={exportType === 'daterange'}
+                        onChange={(e) => setExportType(e.target.value)}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <span className="text-sm text-gray-700">By Date Range</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Month Selection */}
+                {exportType === 'month' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Bulan *
+                      </label>
+                      <select
+                        value={exportMonth}
+                        onChange={(e) => setExportMonth(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">Pilih Bulan</option>
+                        <option value="01">Januari</option>
+                        <option value="02">Februari</option>
+                        <option value="03">Maret</option>
+                        <option value="04">April</option>
+                        <option value="05">Mei</option>
+                        <option value="06">Juni</option>
+                        <option value="07">Juli</option>
+                        <option value="08">Agustus</option>
+                        <option value="09">September</option>
+                        <option value="10">Oktober</option>
+                        <option value="11">November</option>
+                        <option value="12">Desember</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Tahun *
+                      </label>
+                      <input
+                        type="number"
+                        value={exportYear}
+                        onChange={(e) => setExportYear(e.target.value)}
+                        min="2020"
+                        max={new Date().getFullYear() + 1}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        placeholder="2024"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Date Range Selection */}
+                {exportType === 'daterange' && (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Tanggal Mulai *
+                      </label>
+                      <input
+                        type="date"
+                        value={exportStartDate}
+                        onChange={(e) => setExportStartDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Tanggal Akhir *
+                      </label>
+                      <input
+                        type="date"
+                        value={exportEndDate}
+                        onChange={(e) => setExportEndDate(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-xs text-blue-800">
+                    💡 Data akan diekspor dalam format CSV dan berisi semua informasi penugasan termasuk petugas IT Support dan perangkat yang ditugaskan.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-6 border-t mt-6">
+                <button
+                  onClick={() => {
+                    setShowExportModal(false);
+                    setExportMonth('');
+                    setExportYear(new Date().getFullYear().toString());
+                    setExportStartDate('');
+                    setExportEndDate('');
+                  }}
+                  disabled={exporting}
+                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition disabled:opacity-50"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleExport}
+                  disabled={exporting || (exportType === 'month' && (!exportMonth || !exportYear)) || (exportType === 'daterange' && (!exportStartDate || !exportEndDate))}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {exporting ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      Mengekspor...
+                    </>
+                  ) : (
+                    '📥 Export'
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* DELETE CONFIRMATION MODAL */}
         {showDeleteModal && selectedTask && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">⚠️ Hapus Tugas</h2>
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-2xl font-bold text-gray-900">⚠️ Hapus Tugas</h2>
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setSelectedTask(null);
+                    setDeletionReason('');
+                  }}
+                  className="text-gray-400 hover:text-gray-600 text-2xl font-bold leading-none"
+                >
+                  ×
+                </button>
+              </div>
               
               <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
                 <p className="text-sm font-semibold text-red-900 mb-1">{selectedTask.task_number}</p>
@@ -1507,13 +2473,316 @@ const Penugasan = () => {
           </div>
         )}
 
+        {/* Schedule Task Modal */}
+        {showScheduleModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full p-6 my-8 relative max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-2xl font-bold text-white">
+                  ⏰ Jadwalkan Penugasan
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowScheduleModal(false);
+                    setScheduleForm({
+                      title: '',
+                      description: '',
+                      priority: 'normal',
+                      skp_category_id: '',
+                      assigned_users: [],
+                      scheduled_date: '',
+                      scheduled_hour: '',
+                      scheduled_minute: '',
+                      relate_perangkat: true,
+                      assigned_perangkat: [],
+                    });
+                  }}
+                  className="text-gray-400 hover:text-gray-200 text-2xl font-bold leading-none"
+                >
+                  ×
+                </button>
+              </div>
+              <form onSubmit={handleSubmitSchedule} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      Tanggal Jadwal *
+                    </label>
+                    <input
+                      type="date"
+                      required
+                      value={scheduleForm.scheduled_date}
+                      onChange={(e) => setScheduleForm({ ...scheduleForm, scheduled_date: e.target.value })}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      Jam Jadwal (24h) *
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <select
+                        required
+                        value={scheduleForm.scheduled_hour}
+                        onChange={(e) => setScheduleForm({ ...scheduleForm, scheduled_hour: e.target.value })}
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                      >
+                        <option value="">HH</option>
+                        {Array.from({ length: 24 }).map((_, h) => (
+                          <option key={h} value={String(h)}>
+                            {String(h).padStart(2, '0')}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        required
+                        value={scheduleForm.scheduled_minute}
+                        onChange={(e) => setScheduleForm({ ...scheduleForm, scheduled_minute: e.target.value })}
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                      >
+                        <option value="">MM</option>
+                        {Array.from({ length: 60 }).map((_, m) => (
+                          <option key={m} value={String(m)}>
+                            {String(m).padStart(2, '0')}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Disimpan sebagai <span className="font-mono">TIMESTAMPTZ</span> (contoh: 07:00 GMT+7).
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Prioritas
+                  </label>
+                  <select
+                    value={scheduleForm.priority}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, priority: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                  >
+                    <option value="low">Low</option>
+                    <option value="normal">Normal</option>
+                    <option value="high">High</option>
+                    <option value="urgent">Urgent</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Judul Tugas *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={scheduleForm.title}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, title: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 placeholder:text-gray-400"
+                    placeholder="Perbaikan komputer ruang meeting"
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Deskripsi
+                  </label>
+                  <textarea
+                    value={scheduleForm.description}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, description: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 placeholder:text-gray-400 resize-none"
+                    placeholder="Detail tugas yang harus dikerjakan..."
+                    rows="4"
+                    autoComplete="off"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Assign ke IT Support * (bisa lebih dari 1)
+                  </label>
+                  <div className="space-y-2 max-h-48 overflow-y-auto bg-gray-700 border border-gray-600 rounded-lg p-3">
+                    {allITSupport.length === 0 ? (
+                      <p className="text-sm text-gray-300">Tidak ada data IT Support.</p>
+                    ) : (
+                      allITSupport.map((its) => (
+                        <label key={its.id} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={scheduleForm.assigned_users.includes(its.id)}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setScheduleForm({ ...scheduleForm, assigned_users: [...scheduleForm.assigned_users, its.id] });
+                              } else {
+                                setScheduleForm({ ...scheduleForm, assigned_users: scheduleForm.assigned_users.filter(id => id !== its.id) });
+                              }
+                            }}
+                            className="w-4 h-4 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500"
+                          />
+                          <span className="text-white text-sm">
+                            {its.name} <span className="text-gray-300">({its.email})</span>
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Tugas dijadwalkan tidak muncul di daftar tugas IT Support sampai waktu jadwal tiba.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Kategori SKP *
+                  </label>
+                  <select
+                    value={scheduleForm.skp_category_id}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, skp_category_id: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                    required
+                  >
+                    <option value="">-- Pilih Kategori SKP --</option>
+                    {(skpCategories || []).map((cat) => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.code} - {cat.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Optional perangkat */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={scheduleForm.relate_perangkat}
+                    onChange={(e) => setScheduleForm({ ...scheduleForm, relate_perangkat: e.target.checked, assigned_perangkat: e.target.checked ? scheduleForm.assigned_perangkat : [] })}
+                    className="w-4 h-4 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500"
+                  />
+                  <span className="text-sm text-gray-200">Relasikan perangkat</span>
+                </div>
+
+                {scheduleForm.relate_perangkat && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      Pilih Perangkat * (bisa lebih dari 1)
+                    </label>
+                    <div className="relative mb-2">
+                      <input
+                        type="text"
+                        value={perangkatSearch}
+                        onChange={(e) => setPerangkatSearch(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 placeholder:text-gray-400"
+                        placeholder="Cari perangkat..."
+                      />
+                      <MagnifyingGlassPlusIcon className="w-5 h-5 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                    </div>
+
+                    <div className="space-y-2 max-h-48 overflow-y-auto bg-gray-700 border border-gray-600 rounded-lg p-3">
+                      {perangkatList
+                        .filter(p => {
+                          if (!perangkatSearch) return true;
+                          const q = perangkatSearch.toLowerCase();
+                          return (
+                            (p.id_perangkat || '').toLowerCase().includes(q) ||
+                            (p.nama_perangkat || '').toLowerCase().includes(q)
+                          );
+                        })
+                        .map((perangkat) => (
+                          <label key={perangkat.id} className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={scheduleForm.assigned_perangkat.includes(perangkat.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setScheduleForm({ ...scheduleForm, assigned_perangkat: [...scheduleForm.assigned_perangkat, perangkat.id] });
+                                } else {
+                                  setScheduleForm({ ...scheduleForm, assigned_perangkat: scheduleForm.assigned_perangkat.filter(id => id !== perangkat.id) });
+                                }
+                              }}
+                              className="w-4 h-4 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500"
+                            />
+                            <span className="text-white text-sm flex-1">
+                              <span className="font-mono font-bold text-yellow-300">{perangkat.id_perangkat}</span>
+                              {perangkat.nama_perangkat && ` - ${perangkat.nama_perangkat}`}
+                            </span>
+                          </label>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 justify-end pt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowScheduleModal(false);
+                      setScheduleForm({
+                        title: '',
+                        description: '',
+                        priority: 'normal',
+                        skp_category_id: '',
+                        assigned_users: [],
+                        scheduled_date: '',
+                        scheduled_hour: '',
+                        scheduled_minute: '',
+                        relate_perangkat: true,
+                        assigned_perangkat: [],
+                      });
+                      setPerangkatSearch('');
+                    }}
+                    className="px-6 py-2 border border-gray-600 rounded-lg text-gray-300 hover:bg-gray-700 transition"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={submitting}
+                    className="px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                  >
+                    {submitting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Memproses...
+                      </>
+                    ) : (
+                      '⏰ Jadwalkan'
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
         {/* Form Modal */}
         {showAddForm && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 z-50 overflow-y-auto">
             <div className="bg-gray-800 rounded-xl shadow-xl max-w-2xl w-full p-6 my-8 relative max-h-[90vh] overflow-y-auto">
-              <h2 className="text-2xl font-bold text-white mb-4">
-                ➕ Buat Penugasan Baru
-              </h2>
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-2xl font-bold text-white">
+                  ➕ Buat Penugasan Baru
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setForm({
+                      title: '',
+                      description: '',
+                      priority: 'normal',
+                      skp_category_id: '',
+                      assigned_users: [],
+                      relate_perangkat: true,
+                      assigned_perangkat: [],
+                    });
+                  }}
+                  className="text-gray-400 hover:text-gray-200 text-2xl font-bold leading-none"
+                >
+                  ×
+                </button>
+              </div>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-300 mb-1">
@@ -1548,7 +2817,7 @@ const Penugasan = () => {
                   <label className="block text-sm font-medium text-gray-300 mb-1">
                     Assign ke IT Support * (bisa lebih dari 1)
                   </label>
-                  {availableITSupport.length === 0 ? (
+                  {allITSupport.length === 0 ? (
                     <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-4">
                       <div className="flex items-start gap-3">
                         <span className="text-2xl">⚠️</span>
@@ -1568,32 +2837,53 @@ const Penugasan = () => {
                   ) : (
                     <>
                       <div className="space-y-2 max-h-48 overflow-y-auto bg-gray-700 border border-gray-600 rounded-lg p-3">
-                        {availableITSupport.map((its) => (
-                          <label key={its.id} className="flex items-center gap-2 cursor-pointer hover:bg-gray-600 p-2 rounded">
-                            <input
-                              type="checkbox"
-                              checked={form.assigned_users.includes(its.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setForm({ 
-                                    ...form, 
-                                    assigned_users: [...form.assigned_users, its.id],
-                                    skp_category_id: form.assigned_users.length === 0 ? '' : form.skp_category_id
-                                  });
-                                } else {
-                                  setForm({ 
-                                    ...form, 
-                                    assigned_users: form.assigned_users.filter(id => id !== its.id)
-                                  });
-                                }
-                              }}
-                              className="w-4 h-4 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500"
-                            />
-                            <span className="text-white text-sm">
-                              {its.name} ({its.email})
-                            </span>
-                          </label>
-                        ))}
+                        {allITSupport.map((its) => {
+                          const isDisabled = !its.isAvailable;
+                          const activeTaskNumbers = its.activeTasks.map(t => t.task_number).join(', ');
+                          
+                          return (
+                            <label 
+                              key={its.id} 
+                              className={`flex items-center gap-2 p-2 rounded ${
+                                isDisabled 
+                                  ? 'opacity-60 cursor-not-allowed' 
+                                  : 'cursor-pointer hover:bg-gray-600'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={form.assigned_users.includes(its.id)}
+                                disabled={isDisabled}
+                                onChange={(e) => {
+                                  if (e.target.checked && !isDisabled) {
+                                    setForm({ 
+                                      ...form, 
+                                      assigned_users: [...form.assigned_users, its.id],
+                                      skp_category_id: form.assigned_users.length === 0 ? '' : form.skp_category_id
+                                    });
+                                  } else if (!isDisabled) {
+                                    setForm({ 
+                                      ...form, 
+                                      assigned_users: form.assigned_users.filter(id => id !== its.id)
+                                    });
+                                  }
+                                }}
+                                className="w-4 h-4 text-cyan-500 bg-gray-600 border-gray-500 rounded focus:ring-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                              />
+                              <span className={`text-sm flex-1 ${isDisabled ? 'text-gray-400' : 'text-white'}`}>
+                                {its.name} ({its.email})
+                                {isDisabled && activeTaskNumbers && (
+                                  <span className="ml-2 text-xs text-yellow-400">
+                                    - Sedang mengerjakan: {activeTaskNumbers}
+                                  </span>
+                                )}
+                                {!isDisabled && (
+                                  <span className="ml-2 text-xs text-green-400">- Available</span>
+                                )}
+                              </span>
+                            </label>
+                          );
+                        })}
                       </div>
                       {form.assigned_users.length > 0 && (
                         <p className="text-xs text-cyan-400 mt-1">
@@ -1602,11 +2892,9 @@ const Penugasan = () => {
                       )}
                     </>
                   )}
-                  {availableITSupport.length > 0 && (
-                    <p className="text-xs text-gray-400 mt-1">
-                      Hanya menampilkan IT Support yang tidak memiliki tugas aktif
-                    </p>
-                  )}
+                  <p className="text-xs text-gray-400 mt-1">
+                    Semua IT Support ditampilkan. User yang sedang mengerjakan tugas dinonaktifkan dan menampilkan nomor tugas aktif.
+                  </p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1615,9 +2903,26 @@ const Penugasan = () => {
                       Kategori SKP *
                     </label>
                     {form.assigned_users.length === 0 ? (
-                      <div className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-gray-400 text-sm">
-                        Pilih IT Support terlebih dahulu
-                      </div>
+                      // For hold tasks: show all SKP categories when no IT Support is selected
+                      skpCategories.length === 0 ? (
+                        <div className="w-full px-3 py-2 border border-gray-600 rounded-lg bg-gray-700 text-gray-400 text-sm">
+                          Memuat kategori SKP...
+                        </div>
+                      ) : (
+                        <select
+                          required
+                          value={form.skp_category_id}
+                          onChange={(e) => setForm({ ...form, skp_category_id: e.target.value })}
+                          className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-white rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
+                        >
+                          <option value="">-- Pilih SKP --</option>
+                          {skpCategories.map((skp) => (
+                            <option key={skp.id} value={skp.id}>
+                              {skp.name}
+                            </option>
+                          ))}
+                        </select>
+                      )
                     ) : filteredSkpCategories.length === 0 ? (
                       <div className="w-full px-3 py-2 border border-yellow-600 rounded-lg bg-yellow-900/20 text-yellow-300 text-sm">
                         ⚠️ IT Support ini belum memiliki SKP yang di-assign
@@ -1642,6 +2947,11 @@ const Penugasan = () => {
                         Menampilkan SKP yang di-assign ke kategori IT Support ini
                       </p>
                     )}
+                    {form.assigned_users.length === 0 && skpCategories.length > 0 && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        💡 Pilih SKP untuk hold task. SKP akan digunakan saat task di-assign nanti.
+                      </p>
+                    )}
                   </div>
 
                   <div>
@@ -1663,9 +2973,39 @@ const Penugasan = () => {
 
                 {/* NEW: Perangkat Selection */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Pilih Perangkat * (minimal 1)
+                  <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
+                    <input
+                      type="checkbox"
+                      checked={!!form.relate_perangkat}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setForm({
+                          ...form,
+                          relate_perangkat: checked,
+                          assigned_perangkat: checked ? form.assigned_perangkat : [],
+                        });
+                      }}
+                      className="w-4 h-4 text-cyan-500 bg-gray-700 border-gray-500 rounded focus:ring-cyan-500"
+                    />
+                    Relasi ke Perangkat? (opsional)
                   </label>
+                  {form.relate_perangkat && (
+                    <p className="text-xs text-gray-400 mb-2">
+                      Jika tugas tidak terkait perangkat (mis. rapat/meeting), matikan toggle ini.
+                    </p>
+                  )}
+                  {!form.relate_perangkat && (
+                    <div className="bg-gray-700 border border-gray-600 rounded-lg p-3 text-sm text-gray-300">
+                      Perangkat tidak diperlukan untuk tugas ini.
+                    </div>
+                  )}
+                </div>
+
+                {form.relate_perangkat && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">
+                      Pilih Perangkat {form.relate_perangkat ? '*' : ''} (minimal 1)
+                    </label>
                   <input
                     type="text"
                     placeholder="Cari ID Perangkat..."
@@ -1715,6 +3055,7 @@ const Penugasan = () => {
                     </p>
                   )}
                 </div>
+                )}
 
                 <div className="flex gap-3 justify-end pt-4">
                   <button
@@ -1736,7 +3077,7 @@ const Penugasan = () => {
                     Batal
                   </button>
                   
-                  {availableITSupport.length === 0 ? (
+                  {allITSupport.filter(u => u.isAvailable).length === 0 ? (
                     <button
                       type="button"
                       onClick={handleHoldTask}
@@ -1777,15 +3118,26 @@ const Penugasan = () => {
         {/* Assign Held Task Modal */}
         {showAssignModal && selectedHeldTask && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6">
-              <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                Assign Tugas ke IT Support
-              </h2>
+            <div className="bg-gray-800 border border-gray-700 rounded-xl shadow-xl max-w-md w-full p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-2xl font-bold text-gray-100">
+                  Assign Tugas ke IT Support
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowAssignModal(false);
+                    setSelectedHeldTask(null);
+                  }}
+                  className="text-gray-400 hover:text-gray-200 text-2xl font-bold leading-none"
+                >
+                  ×
+                </button>
+              </div>
               
-              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 mb-4">
-                <p className="text-sm font-mono font-bold text-orange-700">{selectedHeldTask.task_number}</p>
-                <p className="text-lg font-semibold text-gray-900 mt-1">{selectedHeldTask.title}</p>
-                <div className="mt-2 text-sm text-gray-700">
+              <div className="bg-gray-700 border border-gray-600 rounded-lg p-4 mb-4">
+                <p className="text-sm font-mono font-bold text-cyan-400">{selectedHeldTask.task_number}</p>
+                <p className="text-lg font-semibold text-gray-100 mt-1">{selectedHeldTask.title}</p>
+                <div className="mt-2 text-sm text-gray-300">
                   <p>⏱️ Waiting: {formatWaitingDuration(waitingTime[selectedHeldTask.id] || 0)}</p>
                   <p>🎯 {selectedHeldTask.skp_name}</p>
                   <p>⚡ {getPriorityBadge(selectedHeldTask.priority)}</p>
@@ -1793,29 +3145,42 @@ const Penugasan = () => {
               </div>
 
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-300 mb-1">
                   Pilih IT Support *
                 </label>
-                {availableITSupport.length === 0 ? (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+                {allITSupport.length === 0 ? (
+                  <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-3 text-sm text-red-400">
                     ⚠️ Tidak ada IT Support yang tersedia. Tunggu hingga ada yang selesai.
                   </div>
                 ) : (
                   <select
                     id="assign-it-support"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 text-gray-100 rounded-lg focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500"
                     defaultValue=""
                   >
                     <option value="">-- Pilih IT Support --</option>
-                    {availableITSupport.map((its) => (
-                      <option key={its.id} value={its.id}>
-                        {its.name} - Available
-                      </option>
-                    ))}
+                    {allITSupport.map((its) => {
+                      const isDisabled = !its.isAvailable;
+                      const activeTaskNumbers = its.activeTasks.map(t => t.task_number).join(', ');
+                      const label = isDisabled 
+                        ? `${its.name} (${its.email}) - Sedang mengerjakan: ${activeTaskNumbers}`
+                        : `${its.name} (${its.email}) - Available`;
+                      
+                      return (
+                        <option 
+                          key={its.id} 
+                          value={its.id}
+                          disabled={isDisabled}
+                          style={{ color: isDisabled ? '#6b7280' : '#f3f4f6' }}
+                        >
+                          {label}
+                        </option>
+                      );
+                    })}
                   </select>
                 )}
-                <p className="text-xs text-gray-500 mt-1">
-                  💡 Hanya menampilkan IT Support yang tidak punya tugas aktif
+                <p className="text-xs text-gray-400 mt-1">
+                  💡 Semua IT Support ditampilkan. User yang sedang mengerjakan tugas dinonaktifkan dan menampilkan nomor tugas aktif.
                 </p>
               </div>
 
@@ -1825,7 +3190,7 @@ const Penugasan = () => {
                     setShowAssignModal(false);
                     setSelectedHeldTask(null);
                   }}
-                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition"
+                  className="px-6 py-2 border border-gray-600 rounded-lg text-gray-300 hover:bg-gray-700 transition"
                 >
                   Batal
                 </button>
@@ -1833,13 +3198,18 @@ const Penugasan = () => {
                   onClick={() => {
                     const select = document.getElementById('assign-it-support');
                     if (select && select.value) {
+                      const selectedUser = allITSupport.find(u => u.id === select.value);
+                      if (selectedUser && !selectedUser.isAvailable) {
+                        toast.warning('IT Support ini sedang mengerjakan tugas lain');
+                        return;
+                      }
                       handleSubmitAssignment(select.value);
                     } else {
                       toast.warning('Silakan pilih IT Support');
                     }
                   }}
-                  disabled={availableITSupport.length === 0}
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                  disabled={allITSupport.filter(u => u.isAvailable).length === 0}
+                  className="px-6 py-2 bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition disabled:opacity-50"
                 >
                   ✅ Assign Sekarang
                 </button>
@@ -1852,65 +3222,55 @@ const Penugasan = () => {
         {heldTasks.length > 0 && (
           <div className="mb-8">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+              <h2 className="text-xl font-bold text-gray-100 flex items-center gap-2">
                 ⏳ Held Tasks
-                <span className="text-sm bg-orange-100 text-orange-800 px-3 py-1 rounded-full border border-orange-300">
-                  {heldTasks.length} menunggu
+                <span className="text-xs bg-gray-700 text-cyan-400 px-2 py-0.5 rounded-full border border-gray-600">
+                  {heldTasks.length}
                 </span>
               </h2>
             </div>
 
-            <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
               {heldTasks.map((task) => {
                 const currentWait = waitingTime[task.id] || Math.floor(task.current_waiting_minutes);
                 const isOverOneHour = currentWait > 60;
                 
                 return (
-                  <div key={task.id} className={`rounded-xl p-6 border-2 ${
-                    isOverOneHour ? 'bg-red-50 border-red-300' : 'bg-orange-50 border-orange-300'
+                  <div key={task.id} className={`rounded-lg p-3 border relative ${
+                    isOverOneHour 
+                      ? 'bg-gray-800 border-red-500/50' 
+                      : 'bg-gray-800 border-gray-700'
                   }`}>
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono font-bold text-orange-700">{task.task_number}</span>
-                        {getStatusBadge('on_hold')}
-                        {getPriorityBadge(task.priority)}
+                    <button 
+                      onClick={() => handleAssignHeldTask(task)}
+                      className="absolute top-2 right-2 w-6 h-6 text-white hover:text-cyan-400 flex items-center justify-center text-lg transition"
+                      title="Assign ke IT Support"
+                    >
+                      ➕
+                    </button>
+                    <div className="flex items-start justify-between mb-2 pr-8">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                          <span className="font-mono text-base font-bold text-cyan-400">{task.task_number}</span>
+                          {getStatusBadge('on_hold')}
+                          {isOverOneHour && (
+                            <span className="text-xs text-red-400 font-semibold">⚠️</span>
+                          )}
+                        </div>
+                        <h3 className="text-sm font-semibold text-gray-100 mb-1.5 line-clamp-2">{task.title}</h3>
+                        <div className="text-xs text-gray-400 space-y-0.5">
+                          <div>{task.skp_name}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span>{task.assigned_by_name}</span>
+                            <span>•</span>
+                            <span className={`font-medium ${
+                              isOverOneHour ? 'text-red-400' : 'text-cyan-400'
+                            }`}>
+                              {formatWaitingDuration(currentWait)}
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      
-                        {isOverOneHour && (
-                          <span className="text-sm text-red-600 font-semibold flex items-center gap-1">
-                            ⚠️ Waiting &gt; 1 jam
-                          </span>
-                        )}
-                    </div>
-
-                    <h3 className="text-lg font-bold text-gray-900 mb-2">{task.title}</h3>
-
-                    <div className="flex flex-wrap gap-4 text-sm text-gray-700 mb-4">
-                      <span>🎯 {task.skp_name}</span>
-                      <span>👤 {task.assigned_by_name}</span>
-                      <span>🕐 {formatDate(task.created_at)}</span>
-                    </div>
-
-                    <div className={`border rounded-lg p-3 mb-4 ${
-                      isOverOneHour ? 'bg-red-100 border-red-300' : 'bg-white border-orange-300'
-                    }`}>
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium text-gray-700">⏱️ Waiting Time:</span>
-                        <span className={`text-2xl font-bold ${
-                          isOverOneHour ? 'text-red-600' : 'text-orange-600'
-                        }`}>
-                          {formatWaitingDuration(currentWait)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3">
-                      <button 
-                        onClick={() => handleAssignHeldTask(task)}
-                        className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition flex items-center justify-center gap-2"
-                      >
-                        ➕ Assign ke IT Support
-                      </button>
                     </div>
                   </div>
                 );
@@ -1919,64 +3279,35 @@ const Penugasan = () => {
           </div>
         )}
 
-        {/* Info Card */}
-        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-          <div className="flex items-start">
-            <div className="text-2xl mr-3">📋</div>
-            <div>
-              <h3 className="font-semibold text-purple-900 mb-1">
-                Sistem Penugasan Helpdesk
-              </h3>
-              <p className="text-sm text-purple-800">
-                Buat tugas baru dan assign ke IT Support yang tersedia. Jika tidak ada yang available, gunakan Hold Task.
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Header with Refresh Button */}
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-gray-900">Daftar Penugasan</h2>
-          <button
-            onClick={() => {
-              fetchTasks();
-              fetchHeldTasks();
-            }}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2"
-            title="Refresh data"
-          >
-            🔄 Refresh
-          </button>
-        </div>
 
         {/* Statistics */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-          <div className="bg-gradient-to-br from-orange-400 to-orange-600 rounded-lg shadow p-4 text-white">
-            <p className="text-sm opacity-90">Held Tasks</p>
-              <p className="text-2xl font-bold">{heldTasks.length}</p>
-              {heldTasks.filter(t => (waitingTime[t.id] || 0) > 60).length > 0 && (
-                <p className="text-xs mt-1">⚠️ {heldTasks.filter(t => (waitingTime[t.id] || 0) > 60).length} &gt; 1 jam</p>
-              )}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-4">
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-2 md:p-4">
+            <p className="text-xs md:text-sm text-gray-400">Held Tasks</p>
+            <p className="text-xl md:text-2xl font-bold text-cyan-400">{heldTasks.length}</p>
+            {heldTasks.filter(t => (waitingTime[t.id] || 0) > 60).length > 0 && (
+              <p className="text-xs mt-0.5 md:mt-1 text-red-400">⚠️ {heldTasks.filter(t => (waitingTime[t.id] || 0) > 60).length} &gt; 1 jam</p>
+            )}
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-gray-600">Total Tugas</p>
-            <p className="text-2xl font-bold text-gray-900">{tasks.length}</p>
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-2 md:p-4">
+            <p className="text-xs md:text-sm text-gray-400">Total Tugas</p>
+            <p className="text-xl md:text-2xl font-bold text-gray-100">{tasks.length}</p>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-gray-600">Sedang Dikerjakan</p>
-            <p className="text-2xl font-bold text-purple-600">
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-2 md:p-4">
+            <p className="text-xs md:text-sm text-gray-400">Sedang Dikerjakan</p>
+            <p className="text-xl md:text-2xl font-bold text-purple-400">
               {tasks.filter(t => ['in_progress', 'paused'].includes(t.status)).length}
             </p>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-gray-600">Selesai</p>
-            <p className="text-2xl font-bold text-green-600">
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-2 md:p-4">
+            <p className="text-xs md:text-sm text-gray-400">Selesai</p>
+            <p className="text-xl md:text-2xl font-bold text-green-400">
               {tasks.filter(t => t.status === 'completed').length}
             </p>
           </div>
-          <div className="bg-white rounded-lg shadow p-4">
-            <p className="text-sm text-gray-600">Menunggu</p>
-            <p className="text-2xl font-bold text-yellow-600">
+          <div className="bg-gray-800 border border-gray-700 rounded-lg p-2 md:p-4">
+            <p className="text-xs md:text-sm text-gray-400">Menunggu</p>
+            <p className="text-xl md:text-2xl font-bold text-yellow-400">
               {tasks.filter(t => t.status === 'pending').length}
             </p>
           </div>
@@ -2041,20 +3372,6 @@ const Penugasan = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 min-w-[150px]">
-                      {(() => {
-                        // Debug: Log what we have for this task
-                        if (task.task_number) {
-                          console.log(`[Penugasan] Rendering task ${task.task_number}:`, {
-                            task_id: task.id,
-                            has_assigned_users: !!task.assigned_users,
-                            assigned_users_length: task.assigned_users?.length || 0,
-                            assigned_users: task.assigned_users,
-                            // Check if this task should have users by querying directly
-                            will_check_db: true
-                          });
-                        }
-                        return null;
-                      })()}
                       {task.assigned_users && task.assigned_users.length > 0 ? (
                         <div className="space-y-1">
                           {task.assigned_users.map((au, idx) => {
@@ -2062,16 +3379,6 @@ const Penugasan = () => {
                             const userName = au.profiles?.full_name || 
                                           au.profiles?.email || 
                                           (au.user_id ? `User ${au.user_id.substring(0, 8)}...` : 'Unknown');
-                            
-                            // Debug: Log what we're rendering
-                            console.log(`[Penugasan] Rendering user ${idx + 1} for task ${task.task_number}:`, {
-                              user_id: au.user_id,
-                              userName: userName,
-                              has_profiles: !!au.profiles,
-                              profiles_full_name: au.profiles?.full_name,
-                              profiles_email: au.profiles?.email,
-                              full_au_object: au
-                            });
                             
                             return (
                               <p key={idx} className="text-sm font-medium text-white" title={au.user_id || ''}>

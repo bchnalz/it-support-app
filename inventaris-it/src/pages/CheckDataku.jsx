@@ -6,7 +6,7 @@ import IPAddressInput from '../components/IPAddressInput';
 import MACAddressInput from '../components/MACAddressInput';
 import StorageInput from '../components/StorageInput';
 import { useToast } from '../contexts/ToastContext';
-import { MagnifyingGlassPlusIcon, PencilSquareIcon, ArrowsRightLeftIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassPlusIcon, PencilSquareIcon, ArrowsRightLeftIcon, TrashIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
 
 const CheckDataku = () => {
   const { profile } = useAuth();
@@ -77,6 +77,20 @@ const CheckDataku = () => {
     status_perangkat: true, // true = layak, false = tidak layak (rusak)
   });
 
+  const copyToClipboard = async (text, label) => {
+    const value = String(text ?? '').trim();
+    if (!value) {
+      toast.error(`❌ ${label} kosong`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(value);
+      toast.success(`✅ ${label} copied!`);
+    } catch {
+      toast.error(`❌ Gagal copy ${label}`);
+    }
+  };
+
   useEffect(() => {
     // Defer network queries until after first paint so search/button render instantly.
     // This improves perceived speed without changing the underlying query performance.
@@ -126,6 +140,63 @@ const CheckDataku = () => {
       fetchUserCategory();
     }
   }, [profile?.id]);
+
+  // ESC key handler for modals
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape') {
+        if (showAddForm) {
+          if (addStep === 1) {
+            setShowAddForm(false);
+            setAddStep(1);
+            setNewPerangkatId(null);
+            setGeneratedIdPerangkat('');
+            setStep1Form({ jenis_perangkat_kode: '', serial_number: '', lokasi_kode: '' });
+          } else if (addStep === 2 && confirm('Data Step 1 sudah tersimpan. Yakin batal? Data minimal tetap tersimpan.')) {
+            setShowAddForm(false);
+            setAddStep(1);
+            setNewPerangkatId(null);
+            setGeneratedIdPerangkat('');
+            setStep1Form({ jenis_perangkat_kode: '', serial_number: '', lokasi_kode: '' });
+            setStep2Form({
+              jenis_barang_id: '',
+              merk: '',
+              id_remoteaccess: '',
+              spesifikasi_processor: '',
+              kapasitas_ram: '',
+              storages: [],
+              mac_ethernet: '',
+              mac_wireless: '',
+              ip_ethernet: '',
+              ip_wireless: '',
+              serial_number_monitor: '',
+              status_perangkat: true,
+            });
+            fetchPerangkat();
+          }
+        } else if (viewingDetail) {
+          setViewingDetail(null);
+          setHistoryData([]);
+          setMutasiHistory([]);
+          setDetailTab('detail');
+        } else if (showMutasiModal) {
+          setShowMutasiModal(false);
+          setMutasiPerangkat(null);
+          setMutasiForm({ lokasi_baru_kode: '', keterangan: '' });
+        } else if (editingId) {
+          setEditingId(null);
+          setEditForm({});
+        }
+      }
+    };
+
+    if (showAddForm || viewingDetail || showMutasiModal || editingId) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => {
+        document.removeEventListener('keydown', handleEscKey);
+      };
+    }
+  }, [showAddForm, viewingDetail, showMutasiModal, editingId, addStep]);
 
   const fetchMasterData = async () => {
     try {
@@ -260,36 +331,49 @@ const CheckDataku = () => {
   };
 
   // Step 1: Generate ID & Save minimal data
+  const [isSubmittingStep1, setIsSubmittingStep1] = useState(false);
+  
   const handleGenerateAndSave = async (e) => {
     e.preventDefault();
 
+    // Prevent multiple submissions
+    if (isSubmittingStep1) {
+      toast.warning('⏳ Sedang memproses, harap tunggu...');
+      return;
+    }
+
+    // Validate serial number is not "-"
+    if (!step1Form.serial_number || step1Form.serial_number.trim() === '' || step1Form.serial_number.trim() === '-') {
+      toast.error('❌ Serial number tidak boleh kosong atau "-". Silakan masukkan serial number yang valid.');
+      return;
+    }
+
+    setIsSubmittingStep1(true);
+
     try {
-      // Generate ID Perangkat
-      const idPerangkat = await generateIdPerangkat(step1Form.jenis_perangkat_kode);
-      setGeneratedIdPerangkat(idPerangkat);
+      // Optional: Pre-check for duplicate (better UX, but database constraint will catch it anyway)
+      const { data: existingData, error: checkError } = await supabase
+        .from('perangkat')
+        .select('id, id_perangkat, serial_number')
+        .eq('serial_number', step1Form.serial_number.trim())
+        .maybeSingle();
 
-      // Extract urutan perangkat (4 digit terakhir dari ID)
-      // Format ID: 001.2026.01.0001 → urutan = 0001
-      const urutanPerangkat = idPerangkat.split('.').pop(); // Get last part (0001)
+      if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
+        throw checkError;
+      }
 
-      // Get kode lokasi (bukan nama!)
-      const kodeLokasi = step1Form.lokasi_kode || 'XXX';
+      if (existingData) {
+        toast.error(`❌ Serial number "${step1Form.serial_number}" sudah terdaftar dengan ID Perangkat: ${existingData.id_perangkat}. Silakan gunakan serial number yang berbeda.`);
+        setIsSubmittingStep1(false);
+        return;
+      }
 
-      // Generate nama_perangkat: (Kode Lokasi)-(Urutan)
-      // Example: IT-0001, FARMASI158-0002
-      const namaPerangkat = `${kodeLokasi}-${urutanPerangkat}`;
-      setGeneratedNamaPerangkat(namaPerangkat);
-
-      console.log('🏷️ Auto-generated Nama Perangkat:', namaPerangkat);
-
-      // Prepare minimal data untuk insert
+      // Insert minimal data; DB trigger will generate id_perangkat + nama_perangkat atomically
       const dataToInsert = {
-        id_perangkat: idPerangkat,
         petugas_id: profile.id,
         jenis_perangkat_kode: step1Form.jenis_perangkat_kode,
-        serial_number: step1Form.serial_number,
+        serial_number: step1Form.serial_number.trim(), // Trim whitespace
         lokasi_kode: step1Form.lokasi_kode,
-        nama_perangkat: namaPerangkat, // AUTO-GENERATED!
         status_perangkat: 'layak', // Default layak
         // Fill optional fields with "-"
         merk: '-',
@@ -312,11 +396,23 @@ const CheckDataku = () => {
 
       if (error) throw error;
 
+      // Use the generated values from DB (source of truth)
+      setGeneratedIdPerangkat(data.id_perangkat);
+      setGeneratedNamaPerangkat(data.nama_perangkat);
+
       // Save the new ID and move to step 2
       setNewPerangkatId(data.id);
       setAddStep(2);
+      toast.success(`✅ ID Perangkat berhasil dibuat: ${data.id_perangkat}`);
     } catch (error) {
-      toast.error('❌ Gagal generate ID: ' + error.message);
+      // Check for duplicate serial number error
+      if (error.code === '23505' || error.message?.includes('Duplicate serial number') || error.message?.includes('already exists')) {
+        toast.error(`❌ Serial number "${step1Form.serial_number}" sudah terdaftar di database. Silakan gunakan serial number yang berbeda.`);
+      } else {
+        toast.error('❌ Gagal generate ID: ' + error.message);
+      }
+    } finally {
+      setIsSubmittingStep1(false);
     }
   };
 
@@ -370,6 +466,7 @@ const CheckDataku = () => {
       setNewPerangkatId(null);
       setGeneratedIdPerangkat('');
       setGeneratedNamaPerangkat('');
+      setIsSubmittingStep1(false);
       setStep1Form({
         jenis_perangkat_kode: '',
         serial_number: '',
@@ -771,6 +868,29 @@ const CheckDataku = () => {
     profile?.role === 'administrator' || 
     userCategory === 'Koordinator IT Support';
 
+  // Check if user can delete (Administrator or Koordinator IT Support)
+  const canDelete =
+    profile?.role === 'administrator' ||
+    userCategory === 'Koordinator IT Support';
+
+  const handleDeletePerangkat = async (item) => {
+    if (!canDelete) return;
+    if (!confirm(`Hapus perangkat "${item.nama_perangkat || item.id_perangkat}"?`)) return;
+
+    try {
+      const { error } = await supabase
+        .from('perangkat')
+        .delete()
+        .eq('id', item.id);
+
+      if (error) throw error;
+      toast.success('✅ Perangkat berhasil dihapus!');
+      fetchPerangkat();
+    } catch (error) {
+      toast.error('❌ Gagal menghapus perangkat: ' + error.message);
+    }
+  };
+
   return (
     <Layout>
       <div className="space-y-6">
@@ -800,6 +920,7 @@ const CheckDataku = () => {
                       type="button"
                       onClick={() => {
                         setShowAddForm(false);
+                        setIsSubmittingStep1(false);
                         setStep1Form({ jenis_perangkat_kode: '', serial_number: '', lokasi_kode: '' });
                       }}
                       className="text-gray-400 hover:text-gray-600 transition text-2xl font-bold leading-none"
@@ -889,9 +1010,20 @@ const CheckDataku = () => {
                       </button>
                       <button
                         type="submit"
-                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+                        disabled={isSubmittingStep1}
+                        className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       >
-                        🔑 Generate ID Perangkat
+                        {isSubmittingStep1 ? (
+                          <>
+                            <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Memproses...</span>
+                          </>
+                        ) : (
+                          '🔑 Generate ID Perangkat'
+                        )}
                       </button>
                     </div>
                   </form>
@@ -1218,8 +1350,32 @@ const CheckDataku = () => {
               <div className="flex justify-between items-start p-4 border-b border-gray-700">
                 <div>
                   <h2 className="text-xl font-bold text-white">Detail Perangkat</h2>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    <span className="font-mono font-bold text-yellow-300">{viewingDetail.id_perangkat}</span> - {viewingDetail.nama_perangkat}
+                  <p className="text-xs text-gray-400 mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="inline-flex items-center gap-1">
+                      <span className="font-mono font-bold text-yellow-300">{viewingDetail.id_perangkat}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(viewingDetail.id_perangkat, 'Perangkat ID')}
+                        className="text-gray-400 hover:text-white transition"
+                        title="Copy Perangkat ID"
+                        aria-label="Copy Perangkat ID"
+                      >
+                        <ClipboardDocumentIcon className="w-4 h-4" />
+                      </button>
+                    </span>
+                    <span className="text-gray-500">-</span>
+                    <span className="inline-flex items-center gap-1">
+                      <span className="font-semibold text-gray-200">{viewingDetail.nama_perangkat}</span>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(viewingDetail.nama_perangkat, 'Perangkat Name')}
+                        className="text-gray-400 hover:text-white transition"
+                        title="Copy Perangkat Name"
+                        aria-label="Copy Perangkat Name"
+                      >
+                        <ClipboardDocumentIcon className="w-4 h-4" />
+                      </button>
+                    </span>
                   </p>
                 </div>
                 <button
@@ -2262,6 +2418,15 @@ const CheckDataku = () => {
                             title="Mutasi perangkat"
                           >
                             <ArrowsRightLeftIcon className="w-5 h-5" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => handleDeletePerangkat(item)}
+                            className="text-red-400 hover:text-red-300"
+                            title="Hapus perangkat"
+                          >
+                            <TrashIcon className="w-5 h-5" />
                           </button>
                         )}
                       </div>

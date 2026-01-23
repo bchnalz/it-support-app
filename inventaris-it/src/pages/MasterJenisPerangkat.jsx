@@ -19,6 +19,24 @@ const MasterJenisPerangkat = () => {
     fetchJenisPerangkat();
   }, []);
 
+  // ESC key handler for modals
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape' && showAddForm) {
+        setShowAddForm(false);
+        setEditingId(null);
+        setForm({ kode: '', nama: '', is_active: true });
+      }
+    };
+
+    if (showAddForm) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => {
+        document.removeEventListener('keydown', handleEscKey);
+      };
+    }
+  }, [showAddForm]);
+
   const fetchJenisPerangkat = async () => {
     try {
       setLoading(true);

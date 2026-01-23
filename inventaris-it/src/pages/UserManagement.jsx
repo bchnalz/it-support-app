@@ -31,6 +31,29 @@ const UserManagement = () => {
     fetchUserCategories();
   }, [activeTab]);
 
+  // ESC key handler for modals
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape' && showAddUserForm) {
+        setShowAddUserForm(false);
+        setNewUserForm({
+          email: '',
+          full_name: '',
+          password: '',
+          role: 'standard',
+          user_category_id: null,
+        });
+      }
+    };
+
+    if (showAddUserForm) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => {
+        document.removeEventListener('keydown', handleEscKey);
+      };
+    }
+  }, [showAddUserForm]);
+
   const fetchUserCategories = async () => {
     try {
       const { data, error } = await supabase

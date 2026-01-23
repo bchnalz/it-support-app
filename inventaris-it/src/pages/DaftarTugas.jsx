@@ -51,6 +51,29 @@ const DaftarTugas = () => {
     });
   }, [tasks]);
 
+  // ESC key handler for modals
+  useEffect(() => {
+    const handleEscKey = (event) => {
+      if (event.key === 'Escape') {
+        if (showDetailModal) {
+          setShowDetailModal(false);
+          setSelectedTask(null);
+        } else if (showCompleteModal) {
+          setShowCompleteModal(false);
+          setSelectedTask(null);
+          setCompletionNotes('');
+        }
+      }
+    };
+
+    if (showDetailModal || showCompleteModal) {
+      document.addEventListener('keydown', handleEscKey);
+      return () => {
+        document.removeEventListener('keydown', handleEscKey);
+      };
+    }
+  }, [showDetailModal, showCompleteModal]);
+
   const fetchTasks = async () => {
     if (!user?.id) {
       setTasks([]);
@@ -61,7 +84,7 @@ const DaftarTugas = () => {
     try {
       setLoading(true);
       
-      // Get tasks where current user is assigned
+      // Get tasks where current user is assigned (active assignments)
       // Use .abortSignal to prevent caching
       const { data: userAssignments, error: assignError } = await supabase
         .from('task_assignment_users')
@@ -80,13 +103,36 @@ const DaftarTugas = () => {
         throw assignError;
       }
 
-      if (!userAssignments || userAssignments.length === 0) {
+      // Also fetch scheduled tasks assigned to this user (pre-assignment visibility)
+      // Query from task_schedules (more reliable relationship shape)
+      const { data: scheduledRows, error: scheduledError } = await supabase
+        .from('task_schedules')
+        .select(`
+          id,
+          status,
+          scheduled_for,
+          task_assignment_id,
+          task_schedule_users!inner(user_id)
+        `)
+        .eq('task_schedule_users.user_id', user.id)
+        .eq('status', 'scheduled');
+
+      if (scheduledError) {
+        console.warn('[DaftarTugas] Error fetching scheduled tasks (may be RLS):', scheduledError);
+      }
+
+      const scheduledTaskIds = (scheduledRows || [])
+        .map(r => r.task_assignment_id)
+        .filter(Boolean);
+
+      const activeTaskIds = (userAssignments || []).map(a => a.task_assignment_id);
+      const taskIds = [...new Set([...activeTaskIds, ...scheduledTaskIds])];
+
+      if (taskIds.length === 0) {
         setTasks([]);
         setLoading(false);
         return;
       }
-
-      const taskIds = userAssignments.map(a => a.task_assignment_id);
 
       // Get task details with related data
       // IMPORTANT: Use explicit select to avoid any caching issues
@@ -120,12 +166,16 @@ const DaftarTugas = () => {
       // Merge user status and duration
       const tasksWithUserData = tasksData.map(task => {
         const userAssignment = userAssignments.find(a => a.task_assignment_id === task.id);
+        const scheduledRow = (scheduledRows || []).find(r => r.task_assignment_id === task.id);
+        const isScheduledVisible = !!scheduledRow;
+
         return {
           ...task,
-          user_status: userAssignment?.status || 'pending',
+          user_status: userAssignment?.status || (isScheduledVisible ? 'scheduled' : 'pending'),
           user_work_duration: userAssignment?.work_duration_minutes || 0,
           // If task.completed_at is not set but user assignment is completed, use user's completed_at
           completed_at: task.completed_at || userAssignment?.completed_at || null,
+          scheduled_for: scheduledRow?.scheduled_for || null,
         };
       });
 
@@ -535,6 +585,17 @@ const DaftarTugas = () => {
                   </div>
                 </div>
 
+                {selectedTask.status === 'scheduled' && selectedTask.scheduled_for && (
+                  <div className="bg-cyan-50 border border-cyan-200 rounded-lg p-3">
+                    <p className="text-sm text-cyan-800">
+                      ⏰ Dijadwalkan untuk: <span className="font-mono font-semibold">{formatDate(selectedTask.scheduled_for)}</span>
+                    </p>
+                    <p className="text-xs text-cyan-700 mt-1">
+                      Tombol konfirmasi/mulai akan muncul setelah waktu jadwal tiba dan status berubah menjadi <span className="font-mono">pending</span>.
+                    </p>
+                  </div>
+                )}
+
                 {selectedTask.acknowledged_at && (
                   <div>
                     <p className="text-sm text-gray-600">Waktu Tanggapan</p>
@@ -791,7 +852,7 @@ const DaftarTugas = () => {
                     </span>
                   </button>
 
-                  {task.user_status === 'pending' && (
+                  {task.user_status === 'pending' && task.status !== 'scheduled' && (
                     <button
                       onClick={() => handleAcknowledge(task)}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm"
@@ -800,7 +861,7 @@ const DaftarTugas = () => {
                     </button>
                   )}
 
-                  {(task.user_status === 'acknowledged' || task.user_status === 'paused') && (
+                  {(task.user_status === 'acknowledged' || task.user_status === 'paused') && task.status !== 'scheduled' && (
                     <button
                       onClick={() => handleStart(task)}
                       className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition text-sm"
@@ -809,7 +870,7 @@ const DaftarTugas = () => {
                     </button>
                   )}
 
-                  {task.user_status === 'in_progress' && (
+                  {task.user_status === 'in_progress' && task.status !== 'scheduled' && (
                     <>
                       <button
                         onClick={() => handlePause(task)}
@@ -826,7 +887,7 @@ const DaftarTugas = () => {
                     </>
                   )}
 
-                  {task.user_status === 'paused' && (
+                  {task.user_status === 'paused' && task.status !== 'scheduled' && (
                     <button
                       onClick={() => handleCompleteClick(task)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition text-sm"
