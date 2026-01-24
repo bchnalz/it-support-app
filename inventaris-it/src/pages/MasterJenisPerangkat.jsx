@@ -69,20 +69,78 @@ const MasterJenisPerangkat = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      // Trim form values
+      const trimmedKode = form.kode.trim();
+      const trimmedNama = form.nama.trim();
+
+      if (!trimmedKode || !trimmedNama) {
+        toast.error('❌ Kode dan nama tidak boleh kosong!');
+        return;
+      }
+
+      // Check for duplicates before save
       if (editingId) {
+        // Update: Check if kode or nama already exists (excluding current record)
+        const { data: duplicateKode } = await supabase
+          .from('ms_jenis_perangkat')
+          .select('id, kode, nama')
+          .eq('kode', trimmedKode)
+          .neq('id', editingId)
+          .maybeSingle();
+
+        if (duplicateKode) {
+          toast.error(`❌ Kode "${trimmedKode}" sudah digunakan oleh "${duplicateKode.nama}"!`);
+          return;
+        }
+
+        const { data: duplicateNama } = await supabase
+          .from('ms_jenis_perangkat')
+          .select('id, kode, nama')
+          .ilike('nama', trimmedNama)
+          .neq('id', editingId)
+          .maybeSingle();
+
+        if (duplicateNama) {
+          toast.error(`❌ Nama "${trimmedNama}" sudah digunakan oleh kode "${duplicateNama.kode}"!`);
+          return;
+        }
+
         // Update
         const { error } = await supabase
           .from('ms_jenis_perangkat')
-          .update(form)
+          .update({ ...form, kode: trimmedKode, nama: trimmedNama })
           .eq('id', editingId);
 
         if (error) throw error;
         toast.success('✅ Data berhasil diupdate!');
       } else {
+        // Insert: Check if kode or nama already exists
+        const { data: duplicateKode } = await supabase
+          .from('ms_jenis_perangkat')
+          .select('id, kode, nama')
+          .eq('kode', trimmedKode)
+          .maybeSingle();
+
+        if (duplicateKode) {
+          toast.error(`❌ Kode "${trimmedKode}" sudah digunakan oleh "${duplicateKode.nama}"!`);
+          return;
+        }
+
+        const { data: duplicateNama } = await supabase
+          .from('ms_jenis_perangkat')
+          .select('id, kode, nama')
+          .ilike('nama', trimmedNama)
+          .maybeSingle();
+
+        if (duplicateNama) {
+          toast.error(`❌ Nama "${trimmedNama}" sudah digunakan oleh kode "${duplicateNama.kode}"!`);
+          return;
+        }
+
         // Insert
         const { error } = await supabase
           .from('ms_jenis_perangkat')
-          .insert([form]);
+          .insert([{ ...form, kode: trimmedKode, nama: trimmedNama }]);
 
         if (error) throw error;
         toast.success('✅ Data berhasil ditambahkan!');

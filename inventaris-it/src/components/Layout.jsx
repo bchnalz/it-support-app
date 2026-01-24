@@ -165,6 +165,16 @@ const Layout = ({ children }) => {
       roles: ['administrator', 'it_support'] 
     },
     { 
+      path: '/stok-opname-v2', 
+      label: 'Stok Opname V2', 
+      icon: (
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      ),
+      roles: ['administrator', 'it_support'] 
+    },
+    { 
       path: '/check-dataku', 
       label: 'Check Dataku', 
       icon: (
@@ -240,8 +250,8 @@ const Layout = ({ children }) => {
     // Also allow IT Support and Koordinator IT Support categories for Stok Opnam and Import Data
     if (item.roles && item.roles.length > 0) {
       const hasRoleAccess = item.roles.includes(profile?.role);
-      // Special case: Allow IT Support and Koordinator IT Support categories for Stok Opnam and Import Data
-      if (!hasRoleAccess && (item.path === '/stok-opnam' || item.path === '/import-data')) {
+      // Special case: Allow IT Support and Koordinator IT Support categories for Stok Opnam, Stok Opname V2, and Import Data
+      if (!hasRoleAccess && (item.path === '/stok-opnam' || item.path === '/stok-opname-v2' || item.path === '/import-data')) {
         return userCategory === 'IT Support' || userCategory === 'Koordinator IT Support';
       }
       return hasRoleAccess;

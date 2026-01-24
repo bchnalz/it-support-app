@@ -12,6 +12,7 @@ const MasterJenisPerangkat = lazy(() => import('./pages/MasterJenisPerangkat'));
 const MasterJenisBarang = lazy(() => import('./pages/MasterJenisBarang'));
 const MasterLokasi = lazy(() => import('./pages/MasterLokasi'));
 const StokOpnam = lazy(() => import('./pages/StokOpnam'));
+const StokOpnameV2 = lazy(() => import('./pages/StokOpnameV2'));
 const CheckDataku = lazy(() => import('./pages/CheckDataku'));
 const LogPenugasan = lazy(() => import('./pages/LogPenugasan'));
 const ImportData = lazy(() => import('./pages/ImportData'));
@@ -104,6 +105,16 @@ const AppRoutes = () => {
         element={
           <ProtectedRoute allowedRoles={['administrator', 'it_support']}>
             <StokOpnam />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Protected Routes - Stok Opname V2 (IT Support and Administrator only) */}
+      <Route
+        path="/stok-opname-v2"
+        element={
+          <ProtectedRoute allowedRoles={['administrator', 'it_support']}>
+            <StokOpnameV2 />
           </ProtectedRoute>
         }
       />

@@ -95,18 +95,57 @@ const MasterSKP = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const trimmedName = form.name.trim();
+
+      if (!trimmedName) {
+        toast.error('❌ Nama SKP tidak boleh kosong!');
+        return;
+      }
+
+      const submitData = {
+        ...form,
+        name: trimmedName,
+        description: form.description?.trim() || '',
+      };
+
+      // Check for duplicates before save
       if (editingId) {
+        // Update: Check if name already exists (excluding current record, case-insensitive)
+        const { data: duplicate } = await supabase
+          .from('skp_categories')
+          .select('id, name')
+          .ilike('name', trimmedName)
+          .neq('id', editingId)
+          .maybeSingle();
+
+        if (duplicate) {
+          toast.error(`❌ Nama SKP "${trimmedName}" sudah digunakan!`);
+          return;
+        }
+
         const { error } = await supabase
           .from('skp_categories')
-          .update(form)
+          .update(submitData)
           .eq('id', editingId);
 
         if (error) throw error;
         toast.success('✅ SKP berhasil diupdate!');
       } else {
+        // Insert: Check if name already exists (case-insensitive)
+        const { data: duplicate } = await supabase
+          .from('skp_categories')
+          .select('id, name')
+          .ilike('name', trimmedName)
+          .maybeSingle();
+
+        if (duplicate) {
+          toast.error(`❌ Nama SKP "${trimmedName}" sudah digunakan!`);
+          return;
+        }
+
         const { error } = await supabase
           .from('skp_categories')
-          .insert([form]);
+          .insert([submitData]);
 
         if (error) throw error;
         toast.success('✅ SKP berhasil ditambahkan!');

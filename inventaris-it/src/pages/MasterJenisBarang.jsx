@@ -135,12 +135,34 @@ const MasterJenisBarang = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const trimmedNama = form.nama.trim();
+
+      if (!trimmedNama) {
+        toast.error('❌ Nama jenis barang tidak boleh kosong!');
+        return;
+      }
+
       const submitData = {
         ...form,
+        nama: trimmedNama,
         jenis_perangkat_kode: form.jenis_perangkat_kode || null,
       };
 
+      // Check for duplicates before save
       if (editingId) {
+        // Update: Check if nama already exists (excluding current record, case-insensitive)
+        const { data: duplicate } = await supabase
+          .from('ms_jenis_barang')
+          .select('id, nama')
+          .ilike('nama', trimmedNama)
+          .neq('id', editingId)
+          .maybeSingle();
+
+        if (duplicate) {
+          toast.error(`❌ Nama jenis barang "${trimmedNama}" sudah digunakan!`);
+          return;
+        }
+
         const { error } = await supabase
           .from('ms_jenis_barang')
           .update(submitData)
@@ -149,6 +171,18 @@ const MasterJenisBarang = () => {
         if (error) throw error;
         toast.success('✅ Data berhasil diupdate!');
       } else {
+        // Insert: Check if nama already exists (case-insensitive)
+        const { data: duplicate } = await supabase
+          .from('ms_jenis_barang')
+          .select('id, nama')
+          .ilike('nama', trimmedNama)
+          .maybeSingle();
+
+        if (duplicate) {
+          toast.error(`❌ Nama jenis barang "${trimmedNama}" sudah digunakan!`);
+          return;
+        }
+
         const { error } = await supabase
           .from('ms_jenis_barang')
           .insert([submitData]);

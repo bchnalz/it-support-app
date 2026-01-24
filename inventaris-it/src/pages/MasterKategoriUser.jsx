@@ -73,18 +73,57 @@ const MasterKategoriUser = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const trimmedName = form.name.trim();
+
+      if (!trimmedName) {
+        toast.error('❌ Nama kategori tidak boleh kosong!');
+        return;
+      }
+
+      const submitData = {
+        ...form,
+        name: trimmedName,
+        description: form.description?.trim() || '',
+      };
+
+      // Check for duplicates before save
       if (editingId) {
+        // Update: Check if name already exists (excluding current record, case-insensitive)
+        const { data: duplicate } = await supabase
+          .from('user_categories')
+          .select('id, name')
+          .ilike('name', trimmedName)
+          .neq('id', editingId)
+          .maybeSingle();
+
+        if (duplicate) {
+          toast.error(`❌ Nama kategori "${trimmedName}" sudah digunakan!`);
+          return;
+        }
+
         const { error } = await supabase
           .from('user_categories')
-          .update(form)
+          .update(submitData)
           .eq('id', editingId);
 
         if (error) throw error;
         toast.success('✅ Kategori berhasil diupdate!');
       } else {
+        // Insert: Check if name already exists (case-insensitive)
+        const { data: duplicate } = await supabase
+          .from('user_categories')
+          .select('id, name')
+          .ilike('name', trimmedName)
+          .maybeSingle();
+
+        if (duplicate) {
+          toast.error(`❌ Nama kategori "${trimmedName}" sudah digunakan!`);
+          return;
+        }
+
         const { error } = await supabase
           .from('user_categories')
-          .insert([form]);
+          .insert([submitData]);
 
         if (error) throw error;
         toast.success('✅ Kategori berhasil ditambahkan!');
